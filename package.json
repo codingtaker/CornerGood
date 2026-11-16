@@ -1,0 +1,22 @@
+{
+  "name": "cornergood",
+  "private": true,
+  "description": "Geolocated discovery platform for small businesses and community places in Grand Lomé, Togo",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "dev:api": "npm run start:dev -w @cornergood/api",
+    "dev:web": "npm run dev -w @cornergood/web",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @cornergood/api"
+  }
+}
