@@ -23,7 +23,7 @@ The two applications live in one repository and share a single `package-lock.jso
 cp .env.example .env                       # then change POSTGRES_PASSWORD and DATABASE_URL
 cp apps/web/.env.example apps/web/.env.local
 npm install
-npm run db:up                              # starts PostgreSQL + PostGIS on localhost:5432
+npm run db:up                              # starts PostgreSQL + PostGIS on localhost:$DB_PORT (default 5432)
 npm run dev:api                            # http://localhost:3001/api/v1/health
 npm run dev:web                            # http://localhost:3000
 ```
