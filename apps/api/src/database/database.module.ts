@@ -8,8 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { AppEnvironment } from '../config/env.validation';
+import { createKysely } from './kysely';
 
 export const DATABASE_POOL = Symbol('DATABASE_POOL');
+// Typed query builder for feature modules; it shares the pool above.
+export const KYSELY = Symbol('KYSELY');
 
 const logger = new Logger('DatabasePool');
 
@@ -39,8 +42,13 @@ export function createDatabasePool(connectionString: string): Pool {
       useFactory: (config: ConfigService<AppEnvironment, true>) =>
         createDatabasePool(config.get('DATABASE_URL', { infer: true })),
     },
+    {
+      provide: KYSELY,
+      inject: [DATABASE_POOL],
+      useFactory: (pool: Pool) => createKysely(pool),
+    },
   ],
-  exports: [DATABASE_POOL],
+  exports: [DATABASE_POOL, KYSELY],
 })
 export class DatabaseModule implements OnApplicationShutdown {
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}

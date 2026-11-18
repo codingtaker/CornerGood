@@ -24,6 +24,8 @@ cp .env.example .env                       # then change POSTGRES_PASSWORD and D
 cp apps/web/.env.example apps/web/.env.local
 npm install
 npm run db:up                              # starts PostgreSQL + PostGIS on localhost:$DB_PORT (default 5432)
+npm run db:migrate                         # creates the tables
+npm run db:seed                            # loads the 13 communes and the initial categories
 npm run dev:api                            # http://localhost:3001/api/v1/health
 npm run dev:web                            # http://localhost:3000
 ```
@@ -37,8 +39,28 @@ npm run dev:web                            # http://localhost:3000
 | `npm run lint` | Lint both applications |
 | `npm test` | Unit tests |
 | `npm run test:e2e` | API end-to-end tests (no database needed yet) |
+| `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped |
 | `npm run build` | Production build of both applications |
+| `npm run db:migrate` | Apply pending migrations (`apps/api/src/database/migrations`) |
+| `npm run db:migrate:down` | Revert the last migration |
+| `npm run db:seed` | Load or update reference data; safe to run several times |
 | `npm run db:down` | Stop the database (data is kept in a Docker volume) |
+
+To create the test database once Docker is running:
+
+```bash
+docker compose exec db createdb -U cornergood cornergood_test
+# then, in .env or your shell:
+# TEST_DATABASE_URL=postgres://cornergood:<password>@localhost:5432/cornergood_test
+```
+
+## Database conventions
+
+- Migrations are plain SQL inside Kysely migration files, numbered `0001_…`, `0002_…`. A merged migration is never edited: a change goes into a new migration.
+- Closed lists are `text` columns with a `CHECK`, not PostgreSQL `ENUM` types, so values can be changed later.
+- Single-row business rules (location types, a reason for every rejection, one primary location, one pending revision) are enforced by constraints as well as by the API.
+- `moderation_log` is append-only: a trigger rejects any update or deletion.
+- Coordinates are `geography(Point, 4326)`; remember that `ST_MakePoint` takes the **longitude first**.
 
 ## Rules
 

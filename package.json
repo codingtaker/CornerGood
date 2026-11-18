@@ -12,11 +12,15 @@
   "scripts": {
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @cornergood/api",
+    "db:migrate:down": "npm run db:migrate:down -w @cornergood/api",
+    "db:seed": "npm run db:seed -w @cornergood/api",
     "dev:api": "npm run start:dev -w @cornergood/api",
     "dev:web": "npm run dev -w @cornergood/web",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "test": "npm run test --workspaces --if-present",
-    "test:e2e": "npm run test:e2e -w @cornergood/api"
+    "test:e2e": "npm run test:e2e -w @cornergood/api",
+    "test:db": "npm run test:db -w @cornergood/api"
   }
 }
