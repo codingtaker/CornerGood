@@ -5,9 +5,10 @@ import { Database } from '../database/database.types';
 /*
  * Creation of the first administrator (ADR-047). Public sign-up only creates
  * PROFESSIONAL accounts and only an administrator can create an ADMIN, so the
- * very first one is created by a command, with a password read from the
- * environment and never committed. Once an ADMIN exists the command refuses:
- * further administrators are created from the application.
+ * very first one is created by a command. The name, phone and email come
+ * from the environment; the password is typed at the keyboard, hidden, so it
+ * is never stored in a file or in the shell history. Once an ADMIN exists the
+ * command refuses: further administrators are created from the application.
  */
 
 export const MIN_PASSWORD_LENGTH = 12;
@@ -16,23 +17,33 @@ const MAX_PASSWORD_LENGTH = 256;
 const PHONE_PATTERN = /^\+[1-9][0-9]{7,14}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export interface FirstAdminInput {
+export interface FirstAdminIdentity {
   fullName: string;
   phone: string;
   email: string | null;
+}
+
+export interface FirstAdminInput extends FirstAdminIdentity {
   password: string;
 }
 
 /** An error whose message can be shown as is: it never contains the password. */
 export class FirstAdminError extends Error {}
 
-export function readFirstAdminInput(env: NodeJS.ProcessEnv): FirstAdminInput {
+export function readFirstAdminIdentity(
+  env: NodeJS.ProcessEnv,
+): FirstAdminIdentity {
   const fullName = (env.ADMIN_FULL_NAME ?? '').trim().replace(/\s+/g, ' ');
   const phone = (env.ADMIN_PHONE ?? '').replace(/[\s.-]/g, '');
   const email = (env.ADMIN_EMAIL ?? '').trim().toLowerCase() || null;
-  const password = env.ADMIN_PASSWORD ?? '';
 
   const problems: string[] = [];
+  // ADR-047: the password is typed, never read from a file or a variable.
+  if (env.ADMIN_PASSWORD !== undefined) {
+    problems.push(
+      'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt',
+    );
+  }
   if (fullName.length < 2 || fullName.length > 120) {
     problems.push('ADMIN_FULL_NAME must be 2 to 120 characters long');
   }
@@ -44,19 +55,30 @@ export function readFirstAdminInput(env: NodeJS.ProcessEnv): FirstAdminInput {
   if (email !== null && !EMAIL_PATTERN.test(email)) {
     problems.push('ADMIN_EMAIL is not a valid email address');
   }
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    problems.push(
-      `ADMIN_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters long`,
-    );
-  } else if (password.length > MAX_PASSWORD_LENGTH) {
-    problems.push(
-      `ADMIN_PASSWORD must be at most ${MAX_PASSWORD_LENGTH} characters long`,
-    );
-  }
   if (problems.length > 0) {
     throw new FirstAdminError(problems.join('\n'));
   }
-  return { fullName, phone, email, password };
+  return { fullName, phone, email };
+}
+
+/** Checks the password typed twice at the prompt. */
+export function checkTypedPassword(
+  password: string,
+  confirmation: string,
+): void {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new FirstAdminError(
+      `The password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+    );
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new FirstAdminError(
+      `The password must be at most ${MAX_PASSWORD_LENGTH} characters long.`,
+    );
+  }
+  if (password !== confirmation) {
+    throw new FirstAdminError('The two passwords do not match.');
+  }
 }
 
 export async function createFirstAdmin(
