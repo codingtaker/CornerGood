@@ -1,5 +1,7 @@
 import { Kysely, sql } from 'kysely';
 import { Pool } from 'pg';
+import { createFirstAdmin } from '../../src/admin/first-admin';
+import { verifyPassword } from '../../src/auth/password-hasher';
 import { createDatabasePool } from '../../src/database/database.module';
 import { Database } from '../../src/database/database.types';
 import { createKysely } from '../../src/database/kysely';
@@ -618,6 +620,51 @@ describeWithDatabase('database schema', () => {
         .where('user_id', '=', userId)
         .executeTakeFirstOrThrow();
       expect(total).toBe('0');
+    });
+  });
+
+  describe('first administrator (ADR-047)', () => {
+    const input = {
+      fullName: 'Afi Kouma',
+      phone: '+22890000099',
+      email: 'afi.kouma@example.org',
+      password: 'a long enough password',
+    };
+
+    it('refuses a phone already used by another account', async () => {
+      await expect(
+        createFirstAdmin(db, { ...input, phone: '+22890000001' }),
+      ).rejects.toThrow('ADMIN_PHONE is already used by another account.');
+    });
+
+    it('creates one ADMIN whose password verifies', async () => {
+      const { id } = await createFirstAdmin(db, input);
+      const admin = await db
+        .selectFrom('users')
+        .select(['role', 'is_active', 'email', 'password_hash'])
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow();
+      expect(admin).toMatchObject({
+        role: 'ADMIN',
+        is_active: true,
+        email: input.email,
+      });
+      expect(admin.password_hash).not.toContain(input.password);
+      await expect(
+        verifyPassword(input.password, admin.password_hash),
+      ).resolves.toBe(true);
+    });
+
+    it('refuses to run again once an administrator exists', async () => {
+      await expect(
+        createFirstAdmin(db, { ...input, phone: '+22890000098', email: null }),
+      ).rejects.toThrow('An administrator already exists');
+      const { total } = await db
+        .selectFrom('users')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .where('role', '=', 'ADMIN')
+        .executeTakeFirstOrThrow();
+      expect(total).toBe('1');
     });
   });
 
