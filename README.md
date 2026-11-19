@@ -68,6 +68,15 @@ docker compose exec db createdb -U cornergood cornergood_test
 - Code, identifiers and comments in English; product text in French.
 - Design decisions are recorded in the project's decision register (ADR-001 to ADR-042).
 
+## Data sources
+
+| Data | Source | Licence |
+|---|---|---|
+| Names of the 13 communes | Law n° 2017-008 of 29 June 2017 creating the communes | Public |
+| Boundaries of Agoè-Nyivé 1 to 6 | OCHA / Humanitarian Data Exchange, *Togo – Subnational Administrative Boundaries* (`tgo_admin3`, v02, 7 January 2021), canton level | [CC BY-IGO 3.0](https://creativecommons.org/licenses/by/3.0/igo/) |
+
+HDX stops at cantons. Each commune of Agoè-Nyivé is the canton of its chief town, checked against the MATDCL map *Communes du Grand Lomé* (2019) and the chief towns published by the Grand Lomé district (dagl.tg). Golfe 1 to 7 have no reliable boundary yet. **Any map that shows these boundaries must credit "OCHA / HDX".**
+
 ## Licence
 
-MIT
+MIT (code). Data keeps the licence of its source, listed above.

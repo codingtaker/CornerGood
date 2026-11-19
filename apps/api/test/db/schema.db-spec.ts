@@ -115,6 +115,50 @@ describeWithDatabase('database schema', () => {
       ]);
     });
 
+    it('loads valid boundaries for the 6 communes of Agoè-Nyivé only', async () => {
+      const rows = await db
+        .selectFrom('communes')
+        .select([
+          'slug',
+          sql<boolean>`ST_IsValid(boundary::geometry)`.as('valid'),
+          sql<number>`round(ST_Area(boundary) / 1e6)::int`.as('km2'),
+        ])
+        .where('boundary', 'is not', null)
+        .orderBy('slug')
+        .execute();
+
+      expect(rows.map((row) => row.slug)).toEqual([
+        'agoe-nyive-1',
+        'agoe-nyive-2',
+        'agoe-nyive-3',
+        'agoe-nyive-4',
+        'agoe-nyive-5',
+        'agoe-nyive-6',
+      ]);
+      expect(rows.every((row) => row.valid)).toBe(true);
+      // Vakpossito, the smallest commune of Grand Lomé (4.4 km² officially).
+      expect(rows.find((row) => row.slug === 'agoe-nyive-3')?.km2).toBe(4);
+    });
+
+    it('finds exactly one commune for a point inside each boundary', async () => {
+      const rows = await db
+        .selectFrom('communes as c')
+        .select([
+          'c.slug',
+          sql<string[]>`(
+            SELECT array_agg(o.slug ORDER BY o.slug) FROM communes o
+            WHERE ST_Covers(o.boundary, ST_PointOnSurface(c.boundary::geometry)::geography)
+          )`.as('found'),
+        ])
+        .where('c.boundary', 'is not', null)
+        .execute();
+
+      expect(rows).toHaveLength(6);
+      for (const row of rows) {
+        expect(row.found).toEqual([row.slug]);
+      }
+    });
+
     it('can be seeded twice without duplicates', async () => {
       await seedReferenceData(db);
       const { total } = await db

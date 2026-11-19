@@ -4,6 +4,11 @@
  * Source of the commune names: law "portant création de communes", adopted by the
  * National Assembly on 23 June 2017 (Article 1). The chief towns and the
  * boundaries are set by a separate decree that is not loaded yet (ADR-028).
+ *
+ * Chief towns of Agoè-Nyivé (dagl.tg; Agoè-Nyivé 3 town hall website):
+ * 1 Agoè-Nyivé, 2 Légbassito, 3 Vakpossito, 4 Togblékopé, 6 Adétikopé;
+ * 5 is Zanguéra, the remaining canton, which the Agoè-Nyivé 3 page places to
+ * its north-west as the MATDCL 2019 map does. Boundaries: commune-boundaries.ts.
  */
 
 export interface PrefectureSeed {
