@@ -5,12 +5,20 @@ import { Database } from '../../src/database/database.types';
 import { createKysely } from '../../src/database/kysely';
 import { runMigrations } from '../../src/database/migrator';
 import { seedReferenceData } from '../../src/database/seeder';
+import {
+  assertDisposableConnectedDatabase,
+  assertDisposableTestDatabaseUrl,
+} from './test-database-guard';
 
 /*
  * Runs against a real PostgreSQL + PostGIS database given by TEST_DATABASE_URL.
- * The public schema of that database is wiped: never point it at real data.
+ * The public schema of that database is wiped, so the guard refuses any
+ * database whose name does not end in "_test" or that is DATABASE_URL itself.
  */
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (testDatabaseUrl) {
+  assertDisposableTestDatabaseUrl(testDatabaseUrl, process.env.DATABASE_URL);
+}
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
 
 describeWithDatabase('database schema', () => {
@@ -23,6 +31,10 @@ describeWithDatabase('database schema', () => {
   beforeAll(async () => {
     pool = createDatabasePool(testDatabaseUrl as string);
     db = createKysely(pool);
+    const { rows } = await sql<{
+      name: string;
+    }>`SELECT current_database() AS name`.execute(db);
+    assertDisposableConnectedDatabase(rows[0].name);
     await sql`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`.execute(db);
 
     const { error } = await runMigrations(db, 'latest');
