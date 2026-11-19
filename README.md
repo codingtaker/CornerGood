@@ -45,6 +45,7 @@ npm run dev:web                            # http://localhost:3000
 | `npm run db:migrate:down` | Revert the last migration (development only: refused when `NODE_ENV=production`; in production, fix with a new migration) |
 | `npm run db:seed` | Load reference data; safe to run several times. Communes are updated; categories are only added when missing, so edits made by administrators are kept |
 | `npm run geo:boundaries -- <pdf>` | Regenerate the commune boundaries from the ministry's GeoPDF (see *Data sources*); needs `DATABASE_URL` for PostGIS |
+| `npm run admin:create` | Create the first administrator (see below); refused once an administrator exists |
 | `npm run db:down` | Stop the database (data is kept in a Docker volume) |
 
 To create the test database once Docker is running:
@@ -54,6 +55,16 @@ docker compose exec db createdb -U cornergood cornergood_test
 # then, in .env or your shell:
 # TEST_DATABASE_URL=postgres://cornergood:<password>@localhost:$DB_PORT/cornergood_test
 ```
+
+## First administrator
+
+Public sign-up only creates professional accounts, and only an administrator can create another one (ADR-047). The first administrator is created once, from the command line, after `npm run db:migrate`:
+
+1. Set `ADMIN_FULL_NAME`, `ADMIN_PHONE` (international format, e.g. `+22890000000`), `ADMIN_PASSWORD` (12 characters or more) and optionally `ADMIN_EMAIL`, in `.env` or in your shell.
+2. Run `npm run admin:create`.
+3. Delete `ADMIN_PASSWORD` again. The password is stored only as a scrypt hash, and is never printed or committed.
+
+The command refuses to run when an administrator already exists, or when the phone or email belongs to another account.
 
 ## Database conventions
 
