@@ -1,13 +1,26 @@
 import { createDatabasePool } from './database.module';
 import { createKysely } from './kysely';
 import { readDatabaseUrl } from './load-env';
-import { MigrationDirection, runMigrations } from './migrator';
+import {
+  assertMigrationAllowed,
+  MigrationDirection,
+  runMigrations,
+} from './migrator';
 
 // Usage: npm run db:migrate            (apply every pending migration)
-//        npm run db:migrate:down       (revert the last migration)
+//        npm run db:migrate:down       (revert the last migration;
+//                                       refused when NODE_ENV=production)
 async function main(): Promise<void> {
   const direction: MigrationDirection =
     process.argv[2] === 'down' ? 'down' : 'latest';
+  // Checked before connecting, so a refused run touches nothing.
+  try {
+    assertMigrationAllowed(direction);
+  } catch (error) {
+    console.error((error as Error).message);
+    process.exitCode = 1;
+    return;
+  }
   const db = createKysely(createDatabasePool(readDatabaseUrl()));
 
   try {

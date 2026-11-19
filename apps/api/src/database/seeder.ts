@@ -11,8 +11,11 @@ export interface SeedReport {
 
 /**
  * Loads reference data. Safe to run several times: every row is matched on its
- * slug and updated instead of duplicated, so a corrected name or coordinate is
- * applied by simply running the seed again.
+ * slug, never duplicated.
+ * - Territory (region, prefectures, communes) is updated, so a corrected name
+ *   or a new commune centre is applied by simply running the seed again.
+ * - Categories are only created when missing: existing ones are left as the
+ *   administrators edited them.
  */
 export async function seedReferenceData(
   db: Kysely<Database>,
@@ -83,13 +86,9 @@ export async function seedReferenceData(
           applicable_to: category.applicableTo,
           display_order: index,
         })
-        .onConflict((oc) =>
-          oc.column('slug').doUpdateSet({
-            name: (eb) => eb.ref('excluded.name'),
-            applicable_to: (eb) => eb.ref('excluded.applicable_to'),
-            display_order: (eb) => eb.ref('excluded.display_order'),
-          }),
-        )
+        // Categories belong to the administrators once created: a new run only
+        // adds the missing ones and never overwrites a renamed or reordered one.
+        .onConflict((oc) => oc.column('slug').doNothing())
         .execute();
     }
 

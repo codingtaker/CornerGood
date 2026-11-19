@@ -39,11 +39,11 @@ npm run dev:web                            # http://localhost:3000
 | `npm run lint` | Lint both applications |
 | `npm test` | Unit tests |
 | `npm run test:e2e` | API end-to-end tests (no database needed yet) |
-| `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped. The tests refuse to run unless the database name ends in `_test` and differs from `DATABASE_URL` |
+| `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped. The tests refuse to run unless the database name ends in `_test` and differs from `DATABASE_URL`. Skipped without `TEST_DATABASE_URL`, except in CI where it fails |
 | `npm run build` | Production build of both applications |
 | `npm run db:migrate` | Apply pending migrations (`apps/api/src/database/migrations`) |
-| `npm run db:migrate:down` | Revert the last migration |
-| `npm run db:seed` | Load or update reference data; safe to run several times |
+| `npm run db:migrate:down` | Revert the last migration (development only: refused when `NODE_ENV=production`; in production, fix with a new migration) |
+| `npm run db:seed` | Load reference data; safe to run several times. Communes are updated; categories are only added when missing, so edits made by administrators are kept |
 | `npm run db:down` | Stop the database (data is kept in a Docker volume) |
 
 To create the test database once Docker is running:
