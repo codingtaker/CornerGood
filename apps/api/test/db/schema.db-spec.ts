@@ -115,28 +115,22 @@ describeWithDatabase('database schema', () => {
       ]);
     });
 
-    it('loads valid boundaries for the 6 communes of Agoè-Nyivé only', async () => {
+    it('loads a valid boundary for each of the 13 communes', async () => {
       const rows = await db
         .selectFrom('communes')
         .select([
           'slug',
-          sql<boolean>`ST_IsValid(boundary::geometry)`.as('valid'),
+          sql<boolean>`boundary IS NOT NULL AND ST_IsValid(boundary::geometry)`.as(
+            'valid',
+          ),
           sql<number>`round(ST_Area(boundary) / 1e6)::int`.as('km2'),
         ])
-        .where('boundary', 'is not', null)
         .orderBy('slug')
         .execute();
 
-      expect(rows.map((row) => row.slug)).toEqual([
-        'agoe-nyive-1',
-        'agoe-nyive-2',
-        'agoe-nyive-3',
-        'agoe-nyive-4',
-        'agoe-nyive-5',
-        'agoe-nyive-6',
-      ]);
-      expect(rows.every((row) => row.valid)).toBe(true);
-      // Vakpossito, the smallest commune of Grand Lomé (4.4 km² officially).
+      expect(rows).toHaveLength(13);
+      expect(rows.filter((row) => !row.valid)).toEqual([]);
+      // Vakpossito, the smallest commune of Grand Lomé.
       expect(rows.find((row) => row.slug === 'agoe-nyive-3')?.km2).toBe(4);
     });
 
@@ -150,13 +144,25 @@ describeWithDatabase('database schema', () => {
             WHERE ST_Covers(o.boundary, ST_PointOnSurface(c.boundary::geometry)::geography)
           )`.as('found'),
         ])
-        .where('c.boundary', 'is not', null)
         .execute();
 
-      expect(rows).toHaveLength(6);
+      expect(rows).toHaveLength(13);
       for (const row of rows) {
         expect(row.found).toEqual([row.slug]);
       }
+    });
+
+    it('has no overlap between neighbouring communes', async () => {
+      const { rows } = await sql<{ a: string; b: string; m2: number }>`
+        SELECT a.slug AS a, b.slug AS b,
+          ST_Area(ST_Intersection(a.boundary::geometry, b.boundary::geometry)::geography) AS m2
+        FROM communes a JOIN communes b
+          ON a.slug < b.slug AND ST_Intersects(a.boundary, b.boundary)
+      `.execute(db);
+
+      // Neighbours share their limit; any shared surface comes only from
+      // rounding coordinates to 6 decimals (about 0.1 m).
+      expect(rows.filter((row) => row.m2 >= 1)).toEqual([]);
     });
 
     it('can be seeded twice without duplicates', async () => {

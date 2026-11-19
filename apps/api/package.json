@@ -21,6 +21,7 @@
     "db:migrate": "ts-node --transpile-only src/database/migrate.ts latest",
     "db:migrate:down": "ts-node --transpile-only src/database/migrate.ts down",
     "db:seed": "ts-node --transpile-only src/database/seed.ts",
+    "geo:boundaries": "ts-node --transpile-only src/database/geodata/generate-commune-boundaries.ts",
     "test:db": "jest --config ./test/jest-db.json --runInBand"
   },
   "dependencies": {

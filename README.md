@@ -44,6 +44,7 @@ npm run dev:web                            # http://localhost:3000
 | `npm run db:migrate` | Apply pending migrations (`apps/api/src/database/migrations`) |
 | `npm run db:migrate:down` | Revert the last migration (development only: refused when `NODE_ENV=production`; in production, fix with a new migration) |
 | `npm run db:seed` | Load reference data; safe to run several times. Communes are updated; categories are only added when missing, so edits made by administrators are kept |
+| `npm run geo:boundaries -- <pdf>` | Regenerate the commune boundaries from the ministry's GeoPDF (see *Data sources*); needs `DATABASE_URL` for PostGIS |
 | `npm run db:down` | Stop the database (data is kept in a Docker volume) |
 
 To create the test database once Docker is running:
@@ -73,9 +74,9 @@ docker compose exec db createdb -U cornergood cornergood_test
 | Data | Source | Licence |
 |---|---|---|
 | Names of the 13 communes | Law n° 2017-008 of 29 June 2017 creating the communes | Public |
-| Boundaries of Agoè-Nyivé 1 to 6 | OCHA / Humanitarian Data Exchange, *Togo – Subnational Administrative Boundaries* (`tgo_admin3`, v02, 7 January 2021), canton level | [CC BY-IGO 3.0](https://creativecommons.org/licenses/by/3.0/igo/) |
+| Boundaries of the 13 communes | MATDCL, map *Communes du Grand Lomé* (25 April 2019), GeoPDF distributed by [pS-Eau](https://www.pseau.org/outils/ouvrages/tg_matdcl_communes_du_grand_lome_2019.pdf), layer `Limites_Commune__GrandLome` | Official publication, no licence stated: credit the ministry |
 
-HDX stops at cantons. Each commune of Agoè-Nyivé is the canton of its chief town, checked against the MATDCL map *Communes du Grand Lomé* (2019) and the chief towns published by the Grand Lomé district (dagl.tg). Golfe 1 to 7 have no reliable boundary yet. **Any map that shows these boundaries must credit "OCHA / HDX".**
+The boundaries are the vector polygons of the ministry's GeoPDF, converted to WGS 84 by `npm run geo:boundaries -- <path to the PDF>` (see `apps/api/src/database/geodata`). The script refuses any file other than the reviewed edition (checked by SHA-256). The PDF names the communes without numbering them: the number of each commune is documented in `seed-data/territory.ts` and still has to be confirmed with the decree that sets the chief towns. **Any map that shows these boundaries must credit "MATDCL, 2019".**
 
 ## Licence
 
