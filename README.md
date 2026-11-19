@@ -39,7 +39,7 @@ npm run dev:web                            # http://localhost:3000
 | `npm run lint` | Lint both applications |
 | `npm test` | Unit tests |
 | `npm run test:e2e` | API end-to-end tests (no database needed yet) |
-| `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped |
+| `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped. The tests refuse to run unless the database name ends in `_test` and differs from `DATABASE_URL` |
 | `npm run build` | Production build of both applications |
 | `npm run db:migrate` | Apply pending migrations (`apps/api/src/database/migrations`) |
 | `npm run db:migrate:down` | Revert the last migration |
@@ -51,7 +51,7 @@ To create the test database once Docker is running:
 ```bash
 docker compose exec db createdb -U cornergood cornergood_test
 # then, in .env or your shell:
-# TEST_DATABASE_URL=postgres://cornergood:<password>@localhost:5432/cornergood_test
+# TEST_DATABASE_URL=postgres://cornergood:<password>@localhost:$DB_PORT/cornergood_test
 ```
 
 ## Database conventions
