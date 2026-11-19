@@ -16,6 +16,11 @@ import {
  * database whose name does not end in "_test" or that is DATABASE_URL itself.
  */
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+// Locally the suite is skipped without a database. In CI a skipped suite would
+// still report success, so a missing variable must fail instead.
+if (process.env.CI && !testDatabaseUrl) {
+  throw new Error('TEST_DATABASE_URL is required in CI');
+}
 if (testDatabaseUrl) {
   assertDisposableTestDatabaseUrl(testDatabaseUrl, process.env.DATABASE_URL);
 }
@@ -117,6 +122,55 @@ describeWithDatabase('database schema', () => {
         .select(db.fn.countAll<string>().as('total'))
         .executeTakeFirstOrThrow();
       expect(total).toBe('13');
+    });
+
+    it('keeps categories edited by an administrator when seeded again', async () => {
+      const original = await db
+        .selectFrom('categories')
+        .select(['name', 'display_order'])
+        .where('slug', '=', 'reparation')
+        .executeTakeFirstOrThrow();
+      await db
+        .updateTable('categories')
+        .set({ name: 'Réparations et dépannage', display_order: 99 })
+        .where('slug', '=', 'reparation')
+        .execute();
+
+      try {
+        await seedReferenceData(db);
+        const edited = await db
+          .selectFrom('categories')
+          .select(['name', 'display_order'])
+          .where('slug', '=', 'reparation')
+          .executeTakeFirstOrThrow();
+        expect(edited).toEqual({
+          name: 'Réparations et dépannage',
+          display_order: 99,
+        });
+      } finally {
+        await db
+          .updateTable('categories')
+          .set(original)
+          .where('slug', '=', 'reparation')
+          .execute();
+      }
+    });
+
+    it('recreates a missing category when seeded again', async () => {
+      // No test establishment uses this category, so it can be deleted.
+      await db
+        .deleteFrom('categories')
+        .where('slug', '=', 'bibliotheque')
+        .execute();
+
+      await seedReferenceData(db);
+
+      const restored = await db
+        .selectFrom('categories')
+        .select('name')
+        .where('slug', '=', 'bibliotheque')
+        .executeTakeFirst();
+      expect(restored).toEqual({ name: 'Bibliothèque' });
     });
   });
 
