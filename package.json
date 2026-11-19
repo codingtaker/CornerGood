@@ -15,6 +15,7 @@
     "db:migrate": "npm run db:migrate -w @cornergood/api",
     "db:migrate:down": "npm run db:migrate:down -w @cornergood/api",
     "db:seed": "npm run db:seed -w @cornergood/api",
+    "geo:boundaries": "npm run geo:boundaries -w @cornergood/api --",
     "dev:api": "npm run start:dev -w @cornergood/api",
     "dev:web": "npm run dev -w @cornergood/web",
     "build": "npm run build --workspaces",
