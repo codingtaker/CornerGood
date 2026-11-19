@@ -178,6 +178,23 @@ describeWithDatabase('database schema', () => {
       ).resolves.toBeDefined();
     });
 
+    it('never makes the exact point of a home public (ADR-046)', async () => {
+      const establishmentId = await createDraft();
+      await expect(
+        db
+          .insertInto('locations')
+          .values({
+            establishment_id: establishmentId,
+            commune_id: communeId,
+            location_type: 'HOME_BASED',
+            visibility: 'PUBLIC',
+            geom: point,
+            position_source: 'DEVICE_GPS',
+          })
+          .execute(),
+      ).rejects.toThrow(/home_point_stays_private/);
+    });
+
     it('rejects a point without its provenance', async () => {
       const establishmentId = await createDraft();
       await expect(
@@ -207,6 +224,69 @@ describeWithDatabase('database schema', () => {
       await expect(
         db.insertInto('locations').values(primaryMobile).execute(),
       ).rejects.toThrow(/locations_one_primary_per_establishment/);
+    });
+  });
+
+  describe('submission completeness (ADR-045)', () => {
+    async function submit(
+      establishmentId: string,
+      fields: { description: string; phone?: string; whatsapp?: string },
+    ) {
+      return db
+        .updateTable('establishments')
+        .set({ ...fields, publication_status: 'PENDING' })
+        .where('id', '=', establishmentId)
+        .execute();
+    }
+
+    it('accepts a business reachable only on WhatsApp', async () => {
+      const establishmentId = await createDraft();
+      await expect(
+        submit(establishmentId, {
+          description: 'Réparation de téléphones',
+          whatsapp: '+22890000010',
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('refuses a business with no phone and no WhatsApp', async () => {
+      const establishmentId = await createDraft();
+      await expect(
+        submit(establishmentId, { description: 'Réparation de téléphones' }),
+      ).rejects.toThrow(/submitted_listing_is_complete/);
+    });
+
+    it('accepts a community place without any phone number', async () => {
+      const { id: communityCategoryId } = await db
+        .selectFrom('categories')
+        .select('id')
+        .where('slug', '=', 'equipement-sportif')
+        .executeTakeFirstOrThrow();
+      const { id: establishmentId } = await db
+        .insertInto('establishments')
+        .values({
+          owner_id: ownerId,
+          created_by_id: ownerId,
+          category_id: communityCategoryId,
+          entity_type: 'COMMUNITY',
+          name: 'Terrain de quartier',
+          slug: `terrain-de-quartier-${Date.now()}`,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+
+      await expect(
+        submit(establishmentId, {
+          description: 'Terrain de football ouvert à tous',
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('refuses a description made of spaces only', async () => {
+      const establishmentId = await createDraft();
+      await expect(
+        submit(establishmentId, { description: '   ', phone: '+22890000011' }),
+      ).rejects.toThrow(/submitted_listing_is_complete/);
     });
   });
 
@@ -261,11 +341,45 @@ describeWithDatabase('database schema', () => {
             submitted_by_id: ownerId,
             proposed_changes: JSON.stringify({ name: 'Nouveau nom' }),
             status: 'REJECTED',
+            reviewed_by_id: ownerId,
             decided_at: new Date(),
           })
           .execute(),
       ).rejects.toThrow(/rejected_revision_has_reason/);
     });
+
+    it('records who decided on a revision (ADR-010)', async () => {
+      const establishmentId = await createDraft();
+      await expect(
+        db
+          .insertInto('establishment_revisions')
+          .values({
+            establishment_id: establishmentId,
+            submitted_by_id: ownerId,
+            proposed_changes: JSON.stringify({ name: 'Nouveau nom' }),
+            status: 'APPROVED',
+            decided_at: new Date(),
+          })
+          .execute(),
+      ).rejects.toThrow(/decided_revision_has_reviewer/);
+    });
+
+    it.each(['EDIT', 'VERIFY', 'UNVERIFY'] as const)(
+      'logs the %s action required by the API contract',
+      async (action) => {
+        const establishmentId = await createDraft();
+        await expect(
+          db
+            .insertInto('moderation_log')
+            .values({
+              establishment_id: establishmentId,
+              actor_id: ownerId,
+              action,
+            })
+            .execute(),
+        ).resolves.toBeDefined();
+      },
+    );
 
     it('never lets the moderation log be edited or deleted', async () => {
       const establishmentId = await createDraft();
@@ -330,8 +444,76 @@ describeWithDatabase('database schema', () => {
     });
   });
 
+  describe('sessions (ADR-021)', () => {
+    const tokenHash = (seed: string) =>
+      sql<Buffer>`sha256(convert_to(${seed}, 'UTF8'))`;
+
+    it('stores a session for a user', async () => {
+      await expect(
+        db
+          .insertInto('sessions')
+          .values({
+            token_hash: tokenHash('session-a'),
+            user_id: ownerId,
+            expires_at: sql<Date>`now() + interval '30 days'`,
+          })
+          .execute(),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects a session that expires before it starts', async () => {
+      await expect(
+        db
+          .insertInto('sessions')
+          .values({
+            token_hash: tokenHash('session-b'),
+            user_id: ownerId,
+            expires_at: sql<Date>`now() - interval '1 minute'`,
+          })
+          .execute(),
+      ).rejects.toThrow(/session_expires_after_creation/);
+    });
+
+    it('removes the sessions of a deleted user', async () => {
+      const { id: userId } = await db
+        .insertInto('users')
+        .values({
+          full_name: 'Compte temporaire',
+          phone: '+22890000020',
+          password_hash: 'x',
+          role: 'PROFESSIONAL',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await db
+        .insertInto('sessions')
+        .values({
+          token_hash: tokenHash('session-c'),
+          user_id: userId,
+          expires_at: sql<Date>`now() + interval '1 day'`,
+        })
+        .execute();
+
+      await db.deleteFrom('users').where('id', '=', userId).execute();
+
+      const { total } = await db
+        .selectFrom('sessions')
+        .select(db.fn.countAll<string>().as('total'))
+        .where('user_id', '=', userId)
+        .executeTakeFirstOrThrow();
+      expect(total).toBe('0');
+    });
+  });
+
   describe('migrations', () => {
     it('can all be reverted and applied again', async () => {
+      // Start from an empty schema: some down() refuse on purpose to revert
+      // over data they cannot keep (e.g. EDIT entries in the append-only log),
+      // and the tests above wrote such data.
+      await sql`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`.execute(db);
+      const fresh = await runMigrations(db, 'latest');
+      expect(fresh.error).toBeUndefined();
+
       // Revert one migration at a time until none is left, so the test keeps
       // checking every down() whatever the number of migrations.
       let down = await runMigrations(db, 'down');

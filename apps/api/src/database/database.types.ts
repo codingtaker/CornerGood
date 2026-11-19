@@ -35,7 +35,10 @@ export type ModerationAction =
   | 'REJECT'
   | 'SUSPEND'
   | 'REINSTATE'
-  | 'ARCHIVE';
+  | 'ARCHIVE'
+  | 'EDIT'
+  | 'VERIFY'
+  | 'UNVERIFY';
 export type ReportReason =
   | 'WRONG_INFO'
   | 'CLOSED'
@@ -79,6 +82,14 @@ export interface UsersTable {
   created_at: CreatedAt;
   updated_at: UpdatedAt;
   last_login_at: Timestamp | null;
+}
+
+export interface SessionsTable {
+  /** SHA-256 of the cookie value: the token itself is never stored. */
+  token_hash: ColumnType<Buffer, Buffer, never>;
+  user_id: string;
+  created_at: CreatedAt;
+  expires_at: Timestamp;
 }
 
 export interface CategoriesTable {
@@ -214,6 +225,7 @@ export interface Database {
   prefectures: PrefecturesTable;
   communes: CommunesTable;
   users: UsersTable;
+  sessions: SessionsTable;
   categories: CategoriesTable;
   services: ServicesTable;
   establishments: EstablishmentsTable;
