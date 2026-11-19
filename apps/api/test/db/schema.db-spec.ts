@@ -331,8 +331,13 @@ describeWithDatabase('database schema', () => {
   });
 
   describe('migrations', () => {
-    it('can be reverted and applied again', async () => {
-      const down = await runMigrations(db, 'down');
+    it('can all be reverted and applied again', async () => {
+      // Revert one migration at a time until none is left, so the test keeps
+      // checking every down() whatever the number of migrations.
+      let down = await runMigrations(db, 'down');
+      while (!down.error && down.results?.length) {
+        down = await runMigrations(db, 'down');
+      }
       expect(down.error).toBeUndefined();
       const tables = await sql<{ total: string }>`
         SELECT count(*) AS total FROM information_schema.tables
