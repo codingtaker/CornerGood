@@ -7,15 +7,22 @@
  *
  * Boundaries: MATDCL map "Communes du Grand Lomé" (2019), see
  * commune-boundaries.ts. That map names the communes but does not number them.
- * Number to map label, TO CONFIRM with the decree:
+ * Number to map label:
  *   Golfe 1 BE EST, 2 BE CENTRE, 3 BE OUEST, 4 AMOUTIVE, 5 AFLAO GAKLI,
  *   6 BAGUIDA, 7 AFLAO SAGBADO;
  *   Agoè-Nyivé 1 AGOENYIVE, 2 LEGBASSITO, 3 VAKPOSSITO, 4 TOGBLE,
  *   5 ZANGUERA, 6 ADETIKOPE.
- * Evidence: citypopulation.de, whose polygons for Golfe 4, Agoè-Nyivé 3 and
- * Agoè-Nyivé 4 have the shapes of AMOUTIVE, VAKPOSSITO and TOGBLE; the chief
- * towns published by the Grand Lomé district (dagl.tg) and the Agoè-Nyivé 3
- * town hall; press reports naming "Agoè-Nyivé 4 (Togblékopé)" (Koaci, 2020).
+ * Checked on 2026-11-19 against citypopulation.de
+ * (https://www.citypopulation.de/en/togo/lome/admin/): for each of the 13
+ * numbered communes, its polygon has the position, shape and neighbourhoods of
+ * the map label above. Also consistent with the chief towns published by the
+ * Grand Lomé district (dagl.tg) and press reports ("Agoè-Nyivé 4 (Togblékopé)",
+ * Koaci, 2020). citypopulation.de is a secondary source: the decree on chief
+ * towns remains the primary source to cite (ADR-028).
+ *
+ * Known difference: citypopulation.de cuts the Adétikopé industrial platform
+ * out of Agoè-Nyivé 6; the MATDCL 2019 map does not. The boundaries follow the
+ * official map.
  */
 
 export interface PrefectureSeed {

@@ -76,7 +76,7 @@ docker compose exec db createdb -U cornergood cornergood_test
 | Names of the 13 communes | Law n° 2017-008 of 29 June 2017 creating the communes | Public |
 | Boundaries of the 13 communes | MATDCL, map *Communes du Grand Lomé* (25 April 2019), GeoPDF distributed by [pS-Eau](https://www.pseau.org/outils/ouvrages/tg_matdcl_communes_du_grand_lome_2019.pdf), layer `Limites_Commune__GrandLome` | Official publication, no licence stated: credit the ministry |
 
-The boundaries are the vector polygons of the ministry's GeoPDF, converted to WGS 84 by `npm run geo:boundaries -- <path to the PDF>` (see `apps/api/src/database/geodata`). The script refuses any file other than the reviewed edition (checked by SHA-256). The PDF names the communes without numbering them: the number of each commune is documented in `seed-data/territory.ts` and still has to be confirmed with the decree that sets the chief towns. **Any map that shows these boundaries must credit "MATDCL, 2019".**
+The boundaries are the vector polygons of the ministry's GeoPDF, converted to WGS 84 by `npm run geo:boundaries -- <path to the PDF>` (see `apps/api/src/database/geodata`). The script refuses any file other than the reviewed edition (checked by SHA-256). The PDF names the communes without numbering them: the number of each commune was checked against citypopulation.de for all 13 communes and is documented in `seed-data/territory.ts`; the decree that sets the chief towns remains the primary source to find. **Any map that shows these boundaries must credit "MATDCL, 2019".**
 
 ## Licence
 
