@@ -1,19 +1,22 @@
 import { Kysely, sql } from 'kysely';
 import { Database } from './database.types';
 import { CATEGORIES } from './seed-data/categories';
+import { COMMUNE_BOUNDARIES } from './seed-data/commune-boundaries';
 import { COMMUNE_CENTROIDS, PREFECTURES, REGION } from './seed-data/territory';
 
 export interface SeedReport {
   communes: number;
   categories: number;
-  communesWithoutCentroid: string[];
+  communesWithBoundary: number;
+  /** Communes with neither a boundary nor a centre: no automatic proposal. */
+  communesWithoutLocation: string[];
 }
 
 /**
  * Loads reference data. Safe to run several times: every row is matched on its
  * slug, never duplicated.
- * - Territory (region, prefectures, communes) is updated, so a corrected name
- *   or a new commune centre is applied by simply running the seed again.
+ * - Territory (region, prefectures, communes) is updated, so a corrected name,
+ *   boundary or centre is applied by simply running the seed again.
  * - Categories are only created when missing: existing ones are left as the
  *   administrators edited them.
  */
@@ -77,6 +80,23 @@ export async function seedReferenceData(
         .execute();
     }
 
+    for (const boundary of COMMUNE_BOUNDARIES) {
+      const geoJson = JSON.stringify({
+        type: 'MultiPolygon',
+        coordinates: boundary.multiPolygon,
+      });
+      const result = await trx
+        .updateTable('communes')
+        .set({
+          boundary: sql<string>`ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(${geoJson}), 4326))::geography`,
+        })
+        .where('slug', '=', boundary.slug)
+        .executeTakeFirst();
+      if (result.numUpdatedRows !== 1n) {
+        throw new Error(`Boundary for unknown commune "${boundary.slug}"`);
+      }
+    }
+
     for (const [index, category] of CATEGORIES.entries()) {
       await trx
         .insertInto('categories')
@@ -95,6 +115,7 @@ export async function seedReferenceData(
     const missing = await trx
       .selectFrom('communes')
       .select('name')
+      .where('boundary', 'is', null)
       .where('centroid', 'is', null)
       .orderBy('slug')
       .execute();
@@ -102,7 +123,8 @@ export async function seedReferenceData(
     return {
       communes: communeCount,
       categories: CATEGORIES.length,
-      communesWithoutCentroid: missing.map((row) => row.name),
+      communesWithBoundary: COMMUNE_BOUNDARIES.length,
+      communesWithoutLocation: missing.map((row) => row.name),
     };
   });
 }

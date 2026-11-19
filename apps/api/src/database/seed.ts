@@ -10,12 +10,13 @@ async function main(): Promise<void> {
   try {
     const report = await seedReferenceData(db);
     console.log(
-      `Seeded ${report.communes} communes and ${report.categories} categories.`,
+      `Seeded ${report.communes} communes (${report.communesWithBoundary} with a boundary)` +
+        ` and ${report.categories} categories.`,
     );
-    if (report.communesWithoutCentroid.length > 0) {
+    if (report.communesWithoutLocation.length > 0) {
       console.warn(
-        `No approximate centre yet for: ${report.communesWithoutCentroid.join(', ')}` +
-          ' (fill COMMUNE_CENTROIDS in seed-data/territory.ts).',
+        `No boundary or centre yet for: ${report.communesWithoutLocation.join(', ')}` +
+          ' (the commune is chosen from a list, ADR-044).',
       );
     }
   } catch (error) {
