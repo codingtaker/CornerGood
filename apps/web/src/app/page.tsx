@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 // Placeholder home page until the search screen is built (calendar, week S5).
 export default function HomePage() {
   return (
@@ -7,6 +9,14 @@ export default function HomePage() {
         Trouvez les activités, artisans et services de proximité du Grand Lomé.
       </p>
       <p className="text-sm opacity-70">Plateforme en cours de construction.</p>
+      <nav className="flex gap-4">
+        <Link href="/inscription" className="font-semibold text-accent underline">
+          Créer un compte pro
+        </Link>
+        <Link href="/pro" className="font-semibold underline">
+          Espace pro
+        </Link>
+      </nav>
     </main>
   );
 }

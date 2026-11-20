@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AuthModule } from './auth/auth.module';
 import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
+import { AdminController, ProController } from './spaces/spaces.controllers';
 
 @Module({
   imports: [
@@ -13,7 +15,8 @@ import { HealthController } from './health/health.controller';
       validate: validateEnvironment,
     }),
     DatabaseModule,
+    AuthModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, ProController, AdminController],
 })
 export class AppModule {}
