@@ -32,6 +32,21 @@ npm run dev:web                            # http://localhost:3000
 
 `GET /api/v1/health` returns the PostGIS version when the database is reachable, and `503` otherwise.
 
+## Accounts and sessions
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `POST /auth/register` | public | Creates a **professional** account (the role cannot be chosen) and signs it in |
+| `POST /auth/login` | public | Signs in with phone and password; one message for every failure |
+| `POST /auth/logout` | public | Closes the session |
+| `GET /auth/me` | session | The signed-in user |
+| `GET /pro/…` | session | Professional space |
+| `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
+
+- Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it.
+- Phone numbers are stored in international format; `90 12 34 56` is read as `+22890123456`.
+- The browser calls the API through the web app (`/api/v1/*` is forwarded to `API_URL`, see `apps/web/next.config.ts`), so the cookie belongs to the web app's own origin. The web app's `proxy.ts` sends visitors without a cookie from `/pro` and `/admin` to `/connexion`; the pages then ask the API who is signed in. The API decides access in every case.
+
 ## Useful commands
 
 | Command | Effect |

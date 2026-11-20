@@ -12,7 +12,15 @@ describe('validateEnvironment', () => {
       DATABASE_URL: 'postgres://user:secret@localhost:5432/cornergood',
       API_PORT: 3001,
       WEB_ORIGIN: 'http://localhost:3000',
+      NODE_ENV: 'development',
     });
+  });
+
+  it('keeps NODE_ENV, which makes the session cookie Secure in production', () => {
+    expect(
+      validateEnvironment({ ...validEnvironment, NODE_ENV: 'production' })
+        .NODE_ENV,
+    ).toBe('production');
   });
 
   it('lists every problem at once', () => {

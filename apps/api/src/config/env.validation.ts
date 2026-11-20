@@ -2,6 +2,8 @@ export interface AppEnvironment {
   DATABASE_URL: string;
   API_PORT: number;
   WEB_ORIGIN: string;
+  /** "production" makes the session cookie Secure (HTTPS only). */
+  NODE_ENV: string;
 }
 
 /**
@@ -33,6 +35,10 @@ export function validateEnvironment(
     DATABASE_URL: databaseUrl,
     API_PORT: apiPort,
     WEB_ORIGIN: webOrigin,
+    NODE_ENV:
+      typeof rawEnvironment.NODE_ENV === 'string'
+        ? rawEnvironment.NODE_ENV
+        : 'development',
   };
 }
 
