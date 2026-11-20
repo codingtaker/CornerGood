@@ -1,11 +1,12 @@
 import { createDatabasePool } from './database.module';
 import { createKysely } from './kysely';
-import { readDatabaseUrl } from './load-env';
+import { readOwnerDatabaseUrl } from './load-env';
 import { seedReferenceData } from './seeder';
 
 // Usage: npm run db:seed (after npm run db:migrate)
 async function main(): Promise<void> {
-  const db = createKysely(createDatabasePool(readDatabaseUrl()));
+  // The territory is read-only for the API role: the owner maintains it.
+  const db = createKysely(createDatabasePool(readOwnerDatabaseUrl()));
 
   try {
     const report = await seedReferenceData(db);

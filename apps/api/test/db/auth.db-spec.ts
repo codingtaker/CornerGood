@@ -44,7 +44,8 @@ function sessionCookie(response: request.Response): string {
 }
 
 describeWithDatabase('accounts, sessions and roles (S2)', () => {
-  let pool: Pool;
+  let pool: Pool; // owner: sets up and inspects the database
+  let appPool: Pool; // API
   let db: Kysely<Database>;
   let app: INestApplication<App>;
   const http = () => request(app.getHttpServer());
@@ -66,9 +67,15 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
     const { error } = await runMigrations(db, 'latest');
     if (error) throw new Error('Test migrations failed', { cause: error });
 
+    // The API runs as the least-privilege role, as in production: every test
+    // below also proves that its grants are enough (migration 0003).
+    const appUrl = new URL(testDatabaseUrl as string);
+    appUrl.searchParams.set('options', '-c role=cornergood_app');
+    appPool = createDatabasePool(appUrl.toString());
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DATABASE_POOL)
-      .useValue(pool)
+      .useValue(appPool)
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -76,7 +83,15 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
   });
 
   afterAll(async () => {
-    await app.close(); // also ends the pool (DatabaseModule shutdown hook)
+    await app.close(); // also ends appPool (DatabaseModule shutdown hook)
+    await pool.end();
+  });
+
+  it('runs the API as cornergood_app', async () => {
+    const { rows } = await appPool.query<{ role: string }>(
+      'SELECT current_user AS role',
+    );
+    expect(rows[0].role).toBe('cornergood_app');
   });
 
   describe('the sprint scenario', () => {
