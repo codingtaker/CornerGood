@@ -92,6 +92,14 @@ export interface SessionsTable {
   expires_at: Timestamp;
 }
 
+export interface AuthThrottleTable {
+  key: string;
+  failures: number;
+  window_started_at: Timestamp;
+  blocked_until: Timestamp | null;
+  updated_at: Generated<Date>;
+}
+
 export interface CategoriesTable {
   id: Generated<string>;
   parent_id: string | null;
@@ -238,4 +246,5 @@ export interface Database {
   establishment_revisions: EstablishmentRevisionsTable;
   moderation_log: ModerationLogTable;
   reports: ReportsTable;
+  auth_throttle: AuthThrottleTable;
 }

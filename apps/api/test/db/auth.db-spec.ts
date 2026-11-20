@@ -250,6 +250,158 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
     });
   });
 
+  // Code review of 2026-11-20, point 2. Requests come from the loopback, which
+  // is a trusted proxy (TRUST_PROXY default), so X-Forwarded-For sets the
+  // visitor's address, as the web app does.
+  describe('sign-in limits', () => {
+    const login = (from: string, phone: string, password: string) =>
+      http()
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', from)
+        .send({ phone, password });
+    const expireBlock = (key: string) =>
+      db
+        .updateTable('auth_throttle')
+        .set({ blocked_until: sql<Date>`now() - interval '1 second'` })
+        .where('key', '=', key)
+        .execute();
+    const blockLeft = async (key: string) =>
+      (
+        await db
+          .selectFrom('auth_throttle')
+          .select(
+            sql<number>`extract(epoch FROM blocked_until - now())::int`.as(
+              'seconds',
+            ),
+          )
+          .where('key', '=', key)
+          .executeTakeFirstOrThrow()
+      ).seconds;
+
+    const victim = { phone: '91 11 11 11', password: 'le bon mot de passe' };
+    const phoneKey = 'login:phone:+22891111111';
+
+    beforeAll(async () => {
+      await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '203.0.113.10')
+        .send({ ...victim, fullName: 'Ama Victime' })
+        .expect(201);
+    });
+
+    it('blocks a number after 5 wrong passwords, even with the right one, from any address', async () => {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        await login('203.0.113.11', victim.phone, `faux-${attempt}`).expect(
+          401,
+        );
+      }
+
+      const started = performance.now();
+      const blocked = await login(
+        '203.0.113.11',
+        victim.phone,
+        victim.password,
+      ).expect(429);
+      // Refused before the password is hashed: a blocked client costs nothing.
+      expect(performance.now() - started).toBeLessThan(100);
+      expect(blocked.body).toEqual({
+        message: 'Trop de tentatives. Réessayez dans 1 minute.',
+        retryAfterSeconds: expect.any(Number) as number,
+      });
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(50);
+
+      await login('198.51.100.20', victim.phone, victim.password).expect(429);
+    });
+
+    it('doubles the block on each further failure', async () => {
+      await expireBlock(phoneKey);
+      await login('203.0.113.11', victim.phone, 'faux-6').expect(401);
+      expect(await blockLeft(phoneKey)).toBeGreaterThan(110); // 2 minutes
+    });
+
+    it('lets the right password in once the block is over, and clears the count', async () => {
+      await expireBlock(phoneKey);
+      await login('203.0.113.11', victim.phone, victim.password).expect(200);
+      const left = await db
+        .selectFrom('auth_throttle')
+        .select('key')
+        .where('key', '=', phoneKey)
+        .execute();
+      expect(left).toEqual([]);
+    });
+
+    it('blocks an address after 30 failures across numbers, and only that address', async () => {
+      await db
+        .insertInto('auth_throttle')
+        .values({
+          key: 'login:ip:198.51.100.7',
+          failures: 29,
+          window_started_at: sql<Date>`now()`,
+        })
+        .execute();
+      await login('198.51.100.7', '92 00 00 01', 'x').expect(401); // 30th
+      await login('198.51.100.7', '92 00 00 02', 'x').expect(429);
+      await login('198.51.100.8', '92 00 00 03', 'x').expect(401);
+    });
+
+    it('limits sign-ups per address, failed ones included', async () => {
+      await db
+        .insertInto('auth_throttle')
+        .values({
+          key: 'register:ip:198.51.100.9',
+          failures: 9,
+          window_started_at: sql<Date>`now()`,
+        })
+        .execute();
+      await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '198.51.100.9')
+        .send({})
+        .expect(400); // 10th attempt
+      await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '198.51.100.9')
+        .send({
+          fullName: 'Nouveau',
+          phone: '93 00 00 01',
+          password: 'x'.repeat(10),
+        })
+        .expect(429);
+    });
+
+    // Through a trusted proxy, the address that counts is the one the proxy
+    // saw: the rightmost untrusted entry. One a visitor writes into the header
+    // themself ("6.6.6.6") is ignored, so they cannot escape the limit.
+    it('counts the address the proxy saw, not one the visitor made up', async () => {
+      await login('6.6.6.6, 203.0.113.40', '96 00 00 01', 'x').expect(401);
+      const keys = await db
+        .selectFrom('auth_throttle')
+        .select('key')
+        .where('key', 'like', 'login:ip:%')
+        .where('key', 'in', ['login:ip:6.6.6.6', 'login:ip:203.0.113.40'])
+        .execute();
+      expect(keys).toEqual([{ key: 'login:ip:203.0.113.40' }]);
+    });
+
+    it('starts counting again once the window is over', async () => {
+      await db
+        .insertInto('auth_throttle')
+        .values({
+          key: 'login:phone:+22894000000',
+          failures: 4,
+          window_started_at: sql<Date>`now() - interval '25 hours'`,
+        })
+        .execute();
+      await login('203.0.113.30', '94 00 00 00', 'x').expect(401);
+      const { failures } = await db
+        .selectFrom('auth_throttle')
+        .select('failures')
+        .where('key', '=', 'login:phone:+22894000000')
+        .executeTakeFirstOrThrow();
+      expect(failures).toBe(1);
+    });
+  });
+
   describe('protected routes', () => {
     it('answer 401 without a session', async () => {
       await http().get('/api/v1/pro/listings').expect(401);
@@ -271,10 +423,15 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
         .post('/api/v1/auth/login')
         .send({ phone: '90000099', password: 'mot de passe administrateur' })
         .expect(200);
+      const { total } = await db
+        .selectFrom('users')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .where('role', '=', 'PROFESSIONAL')
+        .executeTakeFirstOrThrow();
       await http()
         .get('/api/v1/admin/overview')
         .set('Cookie', sessionCookie(response))
-        .expect(200, { professionals: 1, pendingListings: 0 });
+        .expect(200, { professionals: Number(total), pendingListings: 0 });
     });
   });
 });
