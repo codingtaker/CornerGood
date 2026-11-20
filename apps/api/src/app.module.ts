@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
+import { SmsModule } from './sms/sms.module';
 import { AdminController, ProController } from './spaces/spaces.controllers';
 
 @Module({
@@ -15,6 +16,7 @@ import { AdminController, ProController } from './spaces/spaces.controllers';
       validate: validateEnvironment,
     }),
     DatabaseModule,
+    SmsModule,
     AuthModule,
   ],
   controllers: [HealthController, ProController, AdminController],

@@ -11,7 +11,15 @@ export interface AppEnvironment {
    * could then forge their address and escape the sign-in limits.
    */
   TRUST_PROXY: string | number;
+  /** Key of the HMAC that stores one-time codes (32 characters or more). */
+  OTP_SECRET: string;
+  /** Who sends the SMS. "console" (development only) writes them in the logs. */
+  SMS_PROVIDER: SmsProviderName;
 }
+
+/** Add a provider here and in sms/sms.module.ts when one is chosen. */
+export const SMS_PROVIDERS = ['console'] as const;
+export type SmsProviderName = (typeof SMS_PROVIDERS)[number];
 
 /**
  * Fails fast at startup when a required variable is missing or malformed,
@@ -48,6 +56,31 @@ export function validateEnvironment(
     ? Number(rawTrustProxy)
     : rawTrustProxy;
 
+  const nodeEnv =
+    typeof rawEnvironment.NODE_ENV === 'string'
+      ? rawEnvironment.NODE_ENV
+      : 'development';
+
+  const otpSecret = readString(rawEnvironment, 'OTP_SECRET', errors);
+  if (otpSecret && otpSecret.length < 32) {
+    errors.push('OTP_SECRET must be at least 32 characters long');
+  }
+
+  const smsProvider =
+    typeof rawEnvironment.SMS_PROVIDER === 'string' &&
+    rawEnvironment.SMS_PROVIDER.trim() !== ''
+      ? rawEnvironment.SMS_PROVIDER.trim()
+      : 'console';
+  if (!(SMS_PROVIDERS as readonly string[]).includes(smsProvider)) {
+    errors.push(`SMS_PROVIDER must be one of: ${SMS_PROVIDERS.join(', ')}`);
+  }
+  // The console provider writes the codes in the logs: never in production.
+  if (smsProvider === 'console' && nodeEnv === 'production') {
+    errors.push(
+      'SMS_PROVIDER=console writes one-time codes in the logs: choose a real provider in production',
+    );
+  }
+
   if (errors.length > 0) {
     throw new Error(`Invalid environment:\n- ${errors.join('\n- ')}`);
   }
@@ -56,11 +89,10 @@ export function validateEnvironment(
     DATABASE_URL: databaseUrl,
     API_PORT: apiPort,
     WEB_ORIGIN: webOrigin,
-    NODE_ENV:
-      typeof rawEnvironment.NODE_ENV === 'string'
-        ? rawEnvironment.NODE_ENV
-        : 'development',
+    NODE_ENV: nodeEnv,
     TRUST_PROXY: trustProxy,
+    OTP_SECRET: otpSecret,
+    SMS_PROVIDER: smsProvider as SmsProviderName,
   };
 }
 

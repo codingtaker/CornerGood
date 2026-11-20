@@ -15,7 +15,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { CookieOptions, Request, Response } from 'express';
 import { AppEnvironment } from '../config/env.validation';
-import { InvalidInputError, readSignIn, readSignUp } from './account-input';
+import {
+  InvalidInputError,
+  readOtpRequest,
+  readPasswordReset,
+  readSignIn,
+  readSignUp,
+} from './account-input';
+import { OTP_TTL_MINUTES, OtpService } from './otp.service';
 import { CurrentUser, readCookie, SessionGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import type { AuthenticatedUser } from './credentials';
@@ -25,6 +32,8 @@ import { ThrottleService } from './throttle.service';
 
 /** The same answer for an unknown number, a wrong password or a closed account. */
 const SIGN_IN_FAILED = 'Numéro ou mot de passe incorrect.';
+/** Wrong, expired, used or out of tries: the same answer. */
+const WRONG_CODE = { message: 'Code incorrect ou expiré.', field: 'code' };
 
 @Controller('auth')
 export class AuthController {
@@ -32,6 +41,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
     private readonly throttle: ThrottleService,
+    private readonly otp: OtpService,
     private readonly config: ConfigService<AppEnvironment, true>,
   ) {}
 
@@ -76,10 +86,26 @@ export class AuthController {
     // Keyed on the number typed, account or not: a block says nothing about
     // which numbers have an account.
     const phoneKey = input ? `login:phone:${input.phone}` : null;
-    const keys = phoneKey ? [ipKey, phoneKey] : [ipKey];
 
     // Before checking the password: a blocked client costs no scrypt.
-    await this.refuseWhileBlocked(keys, response);
+    await this.refuseWhileBlocked([ipKey], response);
+    if (input && phoneKey && (await this.throttle.retryAfter([phoneKey])) > 0) {
+      // The owner of the number lifts the block with a code sent to it by SMS:
+      // whoever only knows the number can no longer lock its owner out.
+      if (!input.code) {
+        await this.refuseWhileBlocked([phoneKey], response, true);
+      } else if (
+        await this.otp.consume(input.phone, 'LOGIN_UNLOCK', input.code)
+      ) {
+        await this.throttle.clear(phoneKey);
+      } else {
+        await this.throttle.record(
+          `otp:fail:ip:${clientKey(request.ip)}`,
+          this.throttle.policies.otpFailureIp,
+        );
+        throw new BadRequestException(WRONG_CODE);
+      }
+    }
 
     const user = input ? await this.auth.signIn(input) : null;
     if (!user) {
@@ -89,6 +115,92 @@ export class AuthController {
       throw new UnauthorizedException({ message: SIGN_IN_FAILED });
     }
     if (phoneKey) await this.throttle.clear(phoneKey);
+    await this.startSession(user.id, response);
+    return { user };
+  }
+
+  /**
+   * Sends a code by SMS, to unlock sign-in or to reset the password. The
+   * answer is the same whether the number has an account or not, and it does
+   * not wait for the SMS, so neither its content nor its delay tells.
+   */
+  @Post('otp')
+  @HttpCode(202)
+  async requestCode(
+    @Body() body: unknown,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ message: string }> {
+    let input;
+    try {
+      input = readOtpRequest(body);
+    } catch (error) {
+      if (error instanceof InvalidInputError) {
+        throw new BadRequestException({
+          message: 'Vérifiez les champs indiqués.',
+          fields: error.problems,
+        });
+      }
+      throw error;
+    }
+
+    // Each SMS costs money: limited per number and per address, every request
+    // counted, whether the number has an account or not.
+    const phoneKey = `otp:phone:${input.phone}`;
+    const ipKey = `otp:ip:${clientKey(request.ip)}`;
+    await this.refuseWhileBlocked([phoneKey, ipKey], response);
+    const { otpPhone, otpIp } = this.throttle.policies;
+    await this.throttle.record(phoneKey, otpPhone);
+    await this.throttle.record(ipKey, otpIp);
+
+    this.otp.issueInBackground(input.phone, input.purpose);
+    return {
+      message:
+        'Si ce numéro a un compte, un code vient de lui être envoyé par SMS. ' +
+        `Il est valable ${OTP_TTL_MINUTES} minutes.`,
+    };
+  }
+
+  /** New password with a PASSWORD_RESET code; closes every other session. */
+  @Post('password-reset')
+  @HttpCode(200)
+  async resetPassword(
+    @Body() body: unknown,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ user: AuthenticatedUser }> {
+    const failureKey = `otp:fail:ip:${clientKey(request.ip)}`;
+    await this.refuseWhileBlocked([failureKey], response);
+
+    let input;
+    try {
+      input = readPasswordReset(body);
+    } catch (error) {
+      if (error instanceof InvalidInputError) {
+        throw new BadRequestException({
+          message: 'Vérifiez les champs indiqués.',
+          fields: error.problems,
+        });
+      }
+      throw error;
+    }
+
+    const userId = await this.otp.consume(
+      input.phone,
+      'PASSWORD_RESET',
+      input.code,
+    );
+    if (!userId) {
+      await this.throttle.record(
+        failureKey,
+        this.throttle.policies.otpFailureIp,
+      );
+      throw new BadRequestException(WRONG_CODE);
+    }
+
+    const user = await this.auth.setPassword(userId, input.password);
+    await this.sessions.closeAll(userId);
+    await this.throttle.clear(`login:phone:${input.phone}`);
     await this.startSession(user.id, response);
     return { user };
   }
@@ -110,10 +222,14 @@ export class AuthController {
     return { user };
   }
 
-  /** 429 with Retry-After while one of these keys is blocked. */
+  /**
+   * 429 with Retry-After while one of these keys is blocked. `unlockBySms`
+   * tells the sign-in form it may offer a code by SMS instead of waiting.
+   */
   private async refuseWhileBlocked(
     keys: string[],
     response: Response,
+    unlockBySms = false,
   ): Promise<void> {
     const seconds = await this.throttle.retryAfter(keys);
     if (seconds > 0) {
@@ -122,6 +238,7 @@ export class AuthController {
         {
           message: tooManyAttemptsMessage(seconds),
           retryAfterSeconds: seconds,
+          ...(unlockBySms ? { unlockBySms: true } : {}),
         },
         HttpStatus.TOO_MANY_REQUESTS,
       );
