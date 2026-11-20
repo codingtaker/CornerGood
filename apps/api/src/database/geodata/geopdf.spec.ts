@@ -120,6 +120,13 @@ describe('geopdf', () => {
     expect(() => extractPaths('0 0 m 1 1 2 2 3 3 c f')).toThrow(/Curves/);
   });
 
+  it('refuses a coordinate transformation or a rectangle instead of ignoring it', () => {
+    expect(() => extractPaths('q 2 0 0 2 10 10 cm 0 0 m 1 1 l f Q')).toThrow(
+      /"cm"/,
+    );
+    expect(() => extractPaths('0 0 10 10 re f')).toThrow(/"re"/);
+  });
+
   it('calibrates the page from the grid crosses and ignores long lines', () => {
     const grid = calibrateFromGrid(
       extractPaths(extractLayer(readPageContent(pdf), 'OC2')),

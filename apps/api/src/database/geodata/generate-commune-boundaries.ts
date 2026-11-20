@@ -44,7 +44,7 @@ const GRID_EASTINGS = [
 const GRID_NORTHINGS = [680000, 685000, 690000, 695000, 700000];
 const UTM_31N = 32631;
 /** Maximum accepted gap between the grid calibration and the PDF's own reference. */
-const MAX_CALIBRATION_ERROR_M = 10;
+const MAX_CALIBRATION_ERROR_M = 5; // measured: 2.1 m (see the generated file)
 /** Pieces smaller than this are digitising artefacts, not parts of a commune. */
 const MIN_PART_AREA_M2 = 100;
 /** Output precision: 6 decimals of a degree, about 0.1 m. */
@@ -113,6 +113,14 @@ interface GeneratedBoundary {
   geoJson: string;
 }
 
+interface GapReport {
+  gapCount: number;
+  maxGapM2: number;
+}
+
+/** Larger gaps between communes are not digitising errors: stop and look. */
+const MAX_GAP_AREA_M2 = 5000;
+
 async function main(): Promise<void> {
   if (!process.argv[2]) {
     throw new Error(
@@ -158,7 +166,7 @@ async function main(): Promise<void> {
 
   const pool = createDatabasePool(readDatabaseUrl());
   try {
-    await checkCalibration(pool, pdf, grid);
+    const calibrationErrorM = await checkCalibration(pool, pdf, grid);
 
     const wkts = polygons.map((shape) => {
       const rings = shape.rings.map((ring) => {
@@ -170,20 +178,31 @@ async function main(): Promise<void> {
       return `POLYGON(${rings.join(',')})`;
     });
 
-    const boundaries = await convert(pool, wkts);
+    const { boundaries, gaps } = await convert(pool, wkts);
     const output = path.join(
       __dirname,
       '..',
       'seed-data',
       'commune-boundaries.ts',
     );
-    const source = renderSeedFile(boundaries, grid.metresPerPointX);
+    const source = renderSeedFile(boundaries, {
+      metresPerPoint: grid.metresPerPointX,
+      calibrationErrorM,
+      gaps,
+    });
     const options = (await prettier.resolveConfig(output)) ?? {};
     writeFileSync(
       output,
       await prettier.format(source, { ...options, parser: 'typescript' }),
     );
 
+    console.log(
+      `Grid calibration within ${calibrationErrorM.toFixed(1)} m of the PDF reference ` +
+        `(limit ${MAX_CALIBRATION_ERROR_M} m).`,
+    );
+    console.log(
+      `Filled ${gaps.gapCount} gap(s) between communes, the largest ${Math.round(gaps.maxGapM2)} m².`,
+    );
     console.log(
       `Wrote ${boundaries.length} boundaries to ${path.relative(process.cwd(), output)}`,
     );
@@ -197,12 +216,16 @@ async function main(): Promise<void> {
   }
 }
 
-/** The grid and the PDF's own geographic reference must agree within a few metres. */
+/**
+ * The grid and the PDF's own geographic reference must agree within a few
+ * metres. Returns the largest gap measured, which is written in the output.
+ */
 async function checkCalibration(
   pool: ReturnType<typeof createDatabasePool>,
   pdf: Buffer,
   grid: ReturnType<typeof calibrateFromGrid>,
-): Promise<void> {
+): Promise<number> {
+  let largest = 0;
   for (const reference of readGeoReference(pdf)) {
     const [easting, northing] = toUtm(reference.page, grid);
     const { rows } = await pool.query<{ metres: number }>(
@@ -217,7 +240,9 @@ async function checkCalibration(
         `Grid calibration is ${Math.round(rows[0].metres)} m away from the PDF reference`,
       );
     }
+    largest = Math.max(largest, rows[0].metres);
   }
+  return largest;
 }
 
 /**
@@ -232,13 +257,20 @@ async function checkCalibration(
  *    (the first in slug order), so that any point falls in a single commune.
  *    The difference is computed on the same grid: computed first and rounded
  *    after, it would leave slivers of a few centimetres along shared limits.
+ * 6. Where the lines do not meet, they can also leave a gap that belongs to no
+ *    commune (a hole inside the union of all communes). Each gap is given to
+ *    the commune it shares the longest border with, so that any point inside
+ *    Grand Lomé falls in a commune. Gaps over MAX_GAP_AREA_M2 stop the script:
+ *    they would be a real enclave, to look at on the map.
  */
 async function convert(
   pool: ReturnType<typeof createDatabasePool>,
   wkts: string[],
-): Promise<GeneratedBoundary[]> {
+): Promise<{ boundaries: GeneratedBoundary[]; gaps: GapReport }> {
   const labels = JSON.stringify(LABELS);
-  const { rows } = await pool.query<GeneratedBoundary & { labelCount: number }>(
+  const { rows } = await pool.query<
+    GeneratedBoundary & { labelCount: number } & GapReport
+  >(
     `WITH raw AS (
        SELECT ordinality AS id, ST_MakeValid(ST_GeomFromText(wkt, ${UTM_31N})) AS geom
        FROM unnest($1::text[]) WITH ORDINALITY AS t(wkt)
@@ -284,11 +316,37 @@ async function convert(
        ) pieces
        WHERE ST_Area(part::geography) >= ${MIN_PART_AREA_M2}
        GROUP BY slug, label, label_count
+     ),
+     rings AS (
+       SELECT (ST_DumpRings(part)).path[1] AS ring_index, (ST_DumpRings(part)).geom AS ring
+       FROM (SELECT (ST_Dump(ST_Union(geom, ${GRID_DEGREES}))).geom AS part FROM final) parts
+     ),
+     gaps AS (
+       SELECT row_number() OVER () AS gap_id, ring AS gap FROM rings WHERE ring_index > 0
+     ),
+     gap_owner AS (
+       SELECT DISTINCT ON (g.gap_id) g.gap_id, g.gap, f.slug
+       FROM gaps g JOIN final f ON ST_Intersects(g.gap, f.geom)
+       ORDER BY g.gap_id,
+         ST_Length(ST_Intersection(ST_Boundary(g.gap), ST_Boundary(f.geom))::geography) DESC,
+         f.slug
+     ),
+     filled AS (
+       SELECT f.slug, f.label, f.label_count,
+         ST_Multi(COALESCE(
+           ST_Union(f.geom, (
+             SELECT ST_Union(o.gap, ${GRID_DEGREES}) FROM gap_owner o WHERE o.slug = f.slug
+           ), ${GRID_DEGREES}),
+           f.geom
+         )) AS geom
+       FROM final f
      )
      SELECT slug, label, label_count::int AS "labelCount",
        round((ST_Area(geom::geography) / 1e6)::numeric, 2)::float8 AS "areaKm2",
-       ST_AsGeoJSON(geom, 6) AS "geoJson"
-     FROM final ORDER BY slug`,
+       ST_AsGeoJSON(geom, 6) AS "geoJson",
+       (SELECT count(*) FROM gaps)::int AS "gapCount",
+       (SELECT COALESCE(max(ST_Area(gap::geography)), 0) FROM gaps)::float8 AS "maxGapM2"
+     FROM filled ORDER BY slug`,
     [wkts, labels],
   );
 
@@ -315,18 +373,48 @@ async function convert(
     );
   }
 
-  return rows.map(({ slug, label, areaKm2, geoJson }) => ({
-    slug,
-    label,
-    areaKm2,
-    geoJson,
-  }));
+  const gaps = { gapCount: rows[0].gapCount, maxGapM2: rows[0].maxGapM2 };
+  if (gaps.maxGapM2 > MAX_GAP_AREA_M2) {
+    throw new Error(
+      `A gap of ${Math.round(gaps.maxGapM2)} m² between communes is too large to fill automatically`,
+    );
+  }
+
+  // The invariant itself, on the written coordinates: no hole left anywhere.
+  const { rows: holes } = await pool.query<{ holes: number }>(
+    `SELECT COALESCE(sum(ST_NumInteriorRings(part)), 0)::int AS holes
+     FROM (
+       SELECT (ST_Dump(ST_Union(ST_GeomFromGeoJSON("geoJson")))).geom AS part
+       FROM json_to_recordset($1::json) AS b("geoJson" text)
+     ) parts`,
+    [JSON.stringify(rows)],
+  );
+  if (holes[0].holes > 0) {
+    throw new Error(
+      `${holes[0].holes} gap(s) remain between communes after filling`,
+    );
+  }
+
+  return {
+    boundaries: rows.map(({ slug, label, areaKm2, geoJson }) => ({
+      slug,
+      label,
+      areaKm2,
+      geoJson,
+    })),
+    gaps,
+  };
 }
 
 function renderSeedFile(
   boundaries: GeneratedBoundary[],
-  metresPerPoint: number,
+  measures: {
+    metresPerPoint: number;
+    calibrationErrorM: number;
+    gaps: GapReport;
+  },
 ): string {
+  const { metresPerPoint, calibrationErrorM, gaps } = measures;
   const entries = boundaries.map((boundary) => {
     const geometry = JSON.parse(boundary.geoJson) as {
       coordinates: number[][][][];
@@ -358,8 +446,15 @@ function renderSeedFile(
  * Accuracy: the export stores vertices on a 0.24 pt step, about
  * ${Math.round(metresPerPoint * 0.24)} m on the ground (${Math.round(metresPerPoint)} m per PDF point). The accuracy of the
  * ministry's own data is not documented, so these limits are official but not
- * surveyed. Overlaps of a few hundred m² between neighbours were given to one
- * commune so that every point falls in exactly one commune.
+ * surveyed.
+ *
+ * Measured when generating:
+ * - grid calibration: within ${calibrationErrorM.toFixed(1)} m of the geographic reference stored
+ *   in the PDF (the script refuses more than ${MAX_CALIBRATION_ERROR_M} m);
+ * - overlaps of a few hundred m² between neighbours were given to one commune,
+ *   and ${gaps.gapCount} gap(s) between communes (largest ${Math.round(gaps.maxGapM2)} m²) to the
+ *   neighbour with the longest shared border, so that every point inside
+ *   Grand Lomé falls in exactly one commune.
  */
 
 export interface CommuneBoundarySeed {
