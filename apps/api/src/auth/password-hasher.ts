@@ -51,8 +51,18 @@ function parseHash(
   const match = /^N=(\d+),r=(\d+),p=(\d+)$/.exec(parts[1]);
   if (!match) return null;
   const [N, r, p] = match.slice(1).map(Number);
-  // Refuse absurd values that would make verification hang or exhaust memory.
-  if (N < 2 || N > 2 ** 20 || (N & (N - 1)) !== 0 || r > 32 || p > 16) {
+  // A stored hash comes from the database, so its parameters must not be able
+  // to make verification hang: N=2^20, r=32, p=16 takes minutes.
+  const powerOfTwo = (N & (N - 1)) === 0;
+  if (
+    N < 2 ||
+    N > 2 ** 17 ||
+    !powerOfTwo ||
+    r < 1 ||
+    r > 16 ||
+    p < 1 ||
+    p > 4
+  ) {
     return null;
   }
   const salt = Buffer.from(parts[2], 'base64');
@@ -68,6 +78,11 @@ export async function verifyPassword(
 ): Promise<boolean> {
   const parsed = parseHash(stored);
   if (!parsed) return false;
-  const candidate = await derive(password, parsed.salt, parsed.params);
-  return timingSafeEqual(candidate, parsed.key);
+  try {
+    const candidate = await derive(password, parsed.salt, parsed.params);
+    return timingSafeEqual(candidate, parsed.key);
+  } catch {
+    // scrypt refuses some parameter combinations: treat them as a bad hash.
+    return false;
+  }
 }

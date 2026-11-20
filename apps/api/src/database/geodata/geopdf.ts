@@ -138,6 +138,13 @@ export function extractPaths(layer: string): PagePath[] {
       throw new Error(
         'Curves are not supported: the export should only contain lines',
       );
+    } else if (token === 'cm') {
+      // A transformation would move the coordinates read so far.
+      throw new Error(
+        '"cm" (coordinate transformation) is not supported: paths would be misplaced',
+      );
+    } else if (token === 're') {
+      throw new Error('"re" (rectangle) is not supported');
     } else if (token === 'h') {
       closeRing();
     } else if (PAINT_OPERATORS.has(token)) {

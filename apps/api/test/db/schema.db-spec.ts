@@ -167,6 +167,19 @@ describeWithDatabase('database schema', () => {
       expect(rows.filter((row) => row.m2 >= 1)).toEqual([]);
     });
 
+    // The invariant, not an example: a point anywhere inside Grand Lomé must
+    // fall in a commune, so the union of the communes has no hole at all.
+    it('leaves no gap between communes', async () => {
+      const { rows } = await sql<{ parts: number; holes: number }>`
+        SELECT count(*)::int AS parts, sum(ST_NumInteriorRings(part))::int AS holes
+        FROM (
+          SELECT (ST_Dump(ST_Union(boundary::geometry))).geom AS part
+          FROM communes WHERE boundary IS NOT NULL
+        ) union_parts
+      `.execute(db);
+      expect(rows[0]).toEqual({ parts: 1, holes: 0 });
+    });
+
     it('can be seeded twice without duplicates', async () => {
       await seedReferenceData(db);
       const { total } = await db
