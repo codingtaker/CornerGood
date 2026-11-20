@@ -18,6 +18,7 @@
     "admin:create": "npm run admin:create -w @cornergood/api",
     "admin:recover": "npm run admin:recover -w @cornergood/api",
     "geo:boundaries": "npm run geo:boundaries -w @cornergood/api --",
+    "geo:web": "npm run geo:web -w @cornergood/api",
     "dev:api": "npm run start:dev -w @cornergood/api",
     "dev:web": "npm run dev -w @cornergood/web",
     "build": "npm run build --workspaces",
