@@ -22,6 +22,7 @@
     "db:migrate:down": "ts-node --transpile-only src/database/migrate.ts down",
     "db:seed": "ts-node --transpile-only src/database/seed.ts",
     "admin:create": "ts-node --transpile-only src/admin/create-admin.ts",
+    "admin:recover": "ts-node --transpile-only src/admin/recover-admin.ts",
     "geo:boundaries": "ts-node --transpile-only src/database/geodata/generate-commune-boundaries.ts",
     "test:db": "jest --config ./test/jest-db.json --runInBand"
   },

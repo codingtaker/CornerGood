@@ -46,6 +46,7 @@ npm run dev:web                            # http://localhost:3000
 | `npm run db:seed` | Load reference data; safe to run several times. Communes are updated; categories are only added when missing, so edits made by administrators are kept |
 | `npm run geo:boundaries -- <pdf>` | Regenerate the commune boundaries from the ministry's GeoPDF (see *Data sources*); needs `DATABASE_URL` for PostGIS |
 | `npm run admin:create` | Create the first administrator (see below); refused once an administrator exists |
+| `npm run admin:recover` | Restore the administrator account when no administrator can sign in (see below) |
 | `npm run db:down` | Stop the database (data is kept in a Docker volume) |
 
 To create the test database once Docker is running:
@@ -64,6 +65,15 @@ Public sign-up only creates professional accounts, and only an administrator can
 2. Run `npm run admin:create` in an interactive terminal, and type the password twice when asked (12 characters or more). It is not shown on screen, and is stored only as a scrypt hash: it never goes into a file or the shell history.
 
 The command refuses to run when `ADMIN_PASSWORD` is set, when an administrator already exists, or when the phone or email belongs to another account.
+
+### When no administrator can sign in any more
+
+If the only administrator was deactivated or has forgotten their password, restore that account from the server instead of editing the database by hand:
+
+1. Set `ADMIN_PHONE` to the phone of the administrator account, in `.env` or in your shell.
+2. Run `npm run admin:recover` in an interactive terminal and type the new password twice.
+
+The account is reactivated, gets the new password, and all its sessions are closed. The command refuses when another administrator is still active (that administrator does it from the application), when the account is not an administrator, or when `ADMIN_PASSWORD` is set. It needs access to the server and its database, so keep that access as restricted as the database itself.
 
 ## Database conventions
 
