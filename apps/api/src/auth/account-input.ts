@@ -75,6 +75,63 @@ export function readSignUp(body: unknown): SignUpInput {
 export interface SignInInput {
   phone: string;
   password: string;
+  /** SMS code that lifts a block on this number (LOGIN_UNLOCK). */
+  code?: string;
+}
+
+const OTP_CODE = /^[0-9]{6}$/;
+
+/** A 6-digit code, spaces allowed ("123 456"); null otherwise. */
+export function readCode(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const code = raw.replace(/\s/g, '');
+  return OTP_CODE.test(code) ? code : null;
+}
+
+const OTP_PURPOSES = ['LOGIN_UNLOCK', 'PASSWORD_RESET'] as const;
+export type OtpRequestPurpose = (typeof OTP_PURPOSES)[number];
+
+/** Codes are only sent to Togolese numbers: SMS abroad cost more and invite fraud. */
+export function readOtpRequest(body: unknown): {
+  phone: string;
+  purpose: OtpRequestPurpose;
+} {
+  const raw = asRecord(body);
+  const problems: Record<string, string> = {};
+  const phone = normalisePhone(raw.phone);
+  if (!phone) {
+    problems.phone = 'Numéro invalide. Exemple : 90 12 34 56.';
+  } else if (!phone.startsWith('+228')) {
+    problems.phone =
+      'Les codes sont envoyés aux numéros togolais (+228) uniquement.';
+  }
+  const purpose = OTP_PURPOSES.find((value) => value === raw.purpose);
+  if (!purpose) problems.purpose = 'Demande inconnue.';
+  if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
+  return { phone: phone as string, purpose: purpose as OtpRequestPurpose };
+}
+
+export interface PasswordResetInput {
+  phone: string;
+  code: string;
+  password: string;
+}
+
+export function readPasswordReset(body: unknown): PasswordResetInput {
+  const raw = asRecord(body);
+  const problems: Record<string, string> = {};
+  const phone = normalisePhone(raw.phone);
+  if (!phone) problems.phone = 'Numéro invalide. Exemple : 90 12 34 56.';
+  const code = readCode(raw.code);
+  if (!code) problems.code = 'Le code reçu par SMS compte 6 chiffres.';
+  const password = typeof raw.password === 'string' ? raw.password : '';
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    problems.password = `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`;
+  } else if (password.length > MAX_PASSWORD_LENGTH) {
+    problems.password = `Le mot de passe doit contenir au plus ${MAX_PASSWORD_LENGTH} caractères.`;
+  }
+  if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
+  return { phone: phone as string, code: code as string, password };
 }
 
 /**
@@ -88,7 +145,8 @@ export function readSignIn(body: unknown): SignInInput | null {
   if (!phone || password === '' || password.length > MAX_PASSWORD_LENGTH) {
     return null;
   }
-  return { phone, password };
+  const code = readCode(raw.code);
+  return code ? { phone, password, code } : { phone, password };
 }
 
 function asRecord(body: unknown): Record<string, unknown> {

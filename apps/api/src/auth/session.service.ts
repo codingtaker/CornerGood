@@ -58,6 +58,14 @@ export class SessionService {
       .execute();
   }
 
+  /** Signs the account out everywhere (e.g. after a password change). */
+  async closeAll(userId: string): Promise<void> {
+    await this.db
+      .deleteFrom('sessions')
+      .where('user_id', '=', userId)
+      .execute();
+  }
+
   /** Expired rows serve no purpose; cheap thanks to sessions_expires_at_idx. */
   async purgeExpired(): Promise<void> {
     await this.db

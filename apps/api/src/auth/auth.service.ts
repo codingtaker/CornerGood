@@ -64,6 +64,22 @@ export class AuthService {
     return user;
   }
 
+  /** New password for an active account (after a PASSWORD_RESET code). */
+  async setPassword(
+    userId: string,
+    password: string,
+  ): Promise<AuthenticatedUser> {
+    const passwordHash = await hashPassword(password);
+    const user = await this.db
+      .updateTable('users')
+      .set({ password_hash: passwordHash, last_login_at: sql<Date>`now()` })
+      .where('id', '=', userId)
+      .where('is_active', '=', true)
+      .returning(['id', 'role', 'full_name'])
+      .executeTakeFirstOrThrow();
+    return { id: user.id, role: user.role, fullName: user.full_name };
+  }
+
   private alreadyUsed(phone: boolean): ConflictException {
     return new ConflictException({
       message: phone

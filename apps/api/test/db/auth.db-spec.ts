@@ -14,6 +14,27 @@ import {
 import { Database } from '../../src/database/database.types';
 import { createKysely } from '../../src/database/kysely';
 import { runMigrations } from '../../src/database/migrator';
+import { SMS_SENDER, SmsSender } from '../../src/sms/sms.module';
+
+/** Keeps the SMS in memory instead of sending them. */
+class FakeSms implements SmsSender {
+  readonly sent: { to: string; text: string }[] = [];
+  send(to: string, text: string): Promise<void> {
+    this.sent.push({ to, text });
+    return Promise.resolve();
+  }
+  /** The code of the last SMS to `to`, waiting a little: it is sent in the background. */
+  async codeFor(to: string): Promise<string> {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const last = [...this.sent].reverse().find((sms) => sms.to === to);
+      const code = last && /\b(\d{6})\b/.exec(last.text)?.[1];
+      if (code) return code;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`No SMS sent to ${to}`);
+  }
+}
+const sms = new FakeSms();
 import {
   assertDisposableConnectedDatabase,
   assertDisposableTestDatabaseUrl,
@@ -76,6 +97,8 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DATABASE_POOL)
       .useValue(appPool)
+      .overrideProvider(SMS_SENDER)
+      .useValue(sms)
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -307,6 +330,8 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
       expect(blocked.body).toEqual({
         message: 'Trop de tentatives. Réessayez dans 1 minute.',
         retryAfterSeconds: expect.any(Number) as number,
+        // The form may offer a code by SMS instead of waiting.
+        unlockBySms: true,
       });
       expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(50);
 
@@ -399,6 +424,202 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
         .where('key', '=', 'login:phone:+22894000000')
         .executeTakeFirstOrThrow();
       expect(failures).toBe(1);
+    });
+  });
+
+  // Codes by SMS (decided on 2026-11-20): they lift a sign-in block and reset
+  // a forgotten password.
+  describe('codes by SMS', () => {
+    const owner = { phone: '97 00 00 01', password: 'mot de passe initial' };
+    const e164 = '+22897000001';
+    const from = (ip: string) => ({ 'X-Forwarded-For': ip });
+    const requestCode = (
+      phone: string,
+      purpose: string,
+      ip = '203.0.113.60',
+    ) => {
+      // The SMS leaves in the background: forget the older ones, so codeFor()
+      // waits for this one instead of returning a previous code.
+      sms.sent.length = 0;
+      return http()
+        .post('/api/v1/auth/otp')
+        .set(from(ip))
+        .send({ phone, purpose });
+    };
+    /** Lets the next request for a code through at once. */
+    const forgetOtpLimits = () =>
+      db.deleteFrom('auth_throttle').where('key', 'like', 'otp:%').execute();
+    const otherThan = (code: string) =>
+      code === '000000' ? '111111' : '000000';
+
+    beforeAll(async () => {
+      await http()
+        .post('/api/v1/auth/register')
+        .set(from('203.0.113.61'))
+        .send({ ...owner, fullName: 'Kodjo Proprio' })
+        .expect(201);
+    });
+    beforeEach(forgetOtpLimits);
+
+    it('answers the same with or without an account, and only texts the account', async () => {
+      const withAccount = await requestCode(
+        owner.phone,
+        'PASSWORD_RESET',
+      ).expect(202);
+      const code = await sms.codeFor(e164);
+      expect(code).toMatch(/^\d{6}$/);
+      expect(sms.sent.at(-1)?.text).toContain(
+        'votre code pour changer votre mot de passe est',
+      );
+
+      const without = await requestCode(
+        '97 00 00 09',
+        'PASSWORD_RESET',
+        '203.0.113.62',
+      ).expect(202);
+      expect(without.body).toEqual(withAccount.body);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(sms.sent.some((message) => message.to === '+22897000009')).toBe(
+        false,
+      );
+    });
+
+    it('only texts Togolese numbers', async () => {
+      await requestCode('+33 6 12 34 56 78', 'PASSWORD_RESET').expect(400);
+    });
+
+    it('makes a number wait before a new code', async () => {
+      await requestCode(owner.phone, 'LOGIN_UNLOCK').expect(202);
+      await requestCode(owner.phone, 'LOGIN_UNLOCK', '198.51.100.61').expect(
+        429,
+      );
+    });
+
+    it('lets the owner of a blocked number in with the code, not without', async () => {
+      await db
+        .insertInto('auth_throttle')
+        .values({
+          key: `login:phone:${e164}`,
+          failures: 5,
+          window_started_at: sql<Date>`now()`,
+          blocked_until: sql<Date>`now() + interval '1 hour'`,
+        })
+        .onConflict((oc) =>
+          oc.column('key').doUpdateSet({
+            blocked_until: sql<Date>`now() + interval '1 hour'`,
+          }),
+        )
+        .execute();
+      const login = (extra: object = {}) =>
+        http()
+          .post('/api/v1/auth/login')
+          .set(from('203.0.113.63'))
+          .send({ ...owner, ...extra });
+
+      const blocked = await login().expect(429);
+      expect(blocked.body).toMatchObject({ unlockBySms: true });
+
+      await requestCode(owner.phone, 'LOGIN_UNLOCK').expect(202);
+      const code = await sms.codeFor(e164);
+      await login({ code: otherThan(code) }).expect(400, {
+        message: 'Code incorrect ou expiré.',
+        field: 'code',
+      });
+      await login({ code }).expect(200);
+
+      // The block is gone, and the code cannot be used twice.
+      const rows = await db
+        .selectFrom('auth_throttle')
+        .select('key')
+        .where('key', '=', `login:phone:${e164}`)
+        .execute();
+      expect(rows).toEqual([]);
+      const reused = await db
+        .selectFrom('otp_codes')
+        .select('consumed_at')
+        .where('purpose', '=', 'LOGIN_UNLOCK')
+        .orderBy('created_at', 'desc')
+        .executeTakeFirstOrThrow();
+      expect(reused.consumed_at).not.toBeNull();
+    });
+
+    it('resets a forgotten password and signs out every other session', async () => {
+      const before = await http()
+        .post('/api/v1/auth/login')
+        .set(from('203.0.113.64'))
+        .send(owner)
+        .expect(200);
+      const oldCookie = sessionCookie(before);
+
+      await requestCode(owner.phone, 'PASSWORD_RESET').expect(202);
+      const code = await sms.codeFor(e164);
+      const reset = await http()
+        .post('/api/v1/auth/password-reset')
+        .set(from('203.0.113.64'))
+        .send({ phone: owner.phone, code, password: 'nouveau mot de passe' })
+        .expect(200);
+
+      await http()
+        .get('/api/v1/auth/me')
+        .set('Cookie', sessionCookie(reset))
+        .expect(200);
+      await http().get('/api/v1/auth/me').set('Cookie', oldCookie).expect(401);
+      await http()
+        .post('/api/v1/auth/login')
+        .set(from('203.0.113.64'))
+        .send(owner)
+        .expect(401);
+      await http()
+        .post('/api/v1/auth/login')
+        .set(from('203.0.113.64'))
+        .send({ phone: owner.phone, password: 'nouveau mot de passe' })
+        .expect(200);
+      owner.password = 'nouveau mot de passe';
+    });
+
+    it('stops a code after 5 wrong tries, even before it expires', async () => {
+      await requestCode(owner.phone, 'PASSWORD_RESET').expect(202);
+      const code = await sms.codeFor(e164);
+      const reset = (tried: string) =>
+        http()
+          .post('/api/v1/auth/password-reset')
+          .set(from('203.0.113.65'))
+          .send({
+            phone: owner.phone,
+            code: tried,
+            password: 'encore un autre',
+          });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await reset(otherThan(code)).expect(400);
+      }
+      await reset(code).expect(400);
+    });
+
+    it('refuses an expired code', async () => {
+      await requestCode(owner.phone, 'PASSWORD_RESET').expect(202);
+      const code = await sms.codeFor(e164);
+      await sql`
+        UPDATE otp_codes SET created_at = now() - interval '20 minutes',
+          expires_at = now() - interval '10 minutes'
+        WHERE consumed_at IS NULL
+      `.execute(db);
+      await http()
+        .post('/api/v1/auth/password-reset')
+        .set(from('203.0.113.66'))
+        .send({ phone: owner.phone, code, password: 'encore un autre' })
+        .expect(400);
+    });
+
+    it('stores only a keyed hash of the code', async () => {
+      await requestCode(owner.phone, 'PASSWORD_RESET').expect(202);
+      const code = await sms.codeFor(e164);
+      const row = await db
+        .selectFrom('otp_codes')
+        .select('code_hash')
+        .where('consumed_at', 'is', null)
+        .executeTakeFirstOrThrow();
+      expect(row.code_hash.length).toBe(32);
+      expect(row.code_hash.toString('latin1')).not.toContain(code);
     });
   });
 
