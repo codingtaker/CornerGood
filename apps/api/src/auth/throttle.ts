@@ -23,6 +23,12 @@ export interface ThrottlePolicies {
   loginIp: ThrottlePolicy;
   /** Every sign-up attempt counts, successful or not. */
   registerIp: ThrottlePolicy;
+  /** Every SMS code request for a number, whether it has an account or not. */
+  otpPhone: ThrottlePolicy;
+  /** SMS code requests per address: each SMS costs money (SMS pumping). */
+  otpIp: ThrottlePolicy;
+  /** Wrong codes per address, on top of the 5 tries of each code. */
+  otpFailureIp: ThrottlePolicy;
 }
 
 export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
@@ -43,6 +49,25 @@ export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
   registerIp: {
     windowSeconds: 3600,
     threshold: 10,
+    baseBlockSeconds: 300,
+    maxBlockSeconds: 3600,
+  },
+  // One code, then wait 1, 2, 4… minutes before the next, up to 1 hour.
+  otpPhone: {
+    windowSeconds: 24 * 3600,
+    threshold: 1,
+    baseBlockSeconds: 60,
+    maxBlockSeconds: 3600,
+  },
+  otpIp: {
+    windowSeconds: 3600,
+    threshold: 10,
+    baseBlockSeconds: 300,
+    maxBlockSeconds: 3600,
+  },
+  otpFailureIp: {
+    windowSeconds: 3600,
+    threshold: 20,
     baseBlockSeconds: 300,
     maxBlockSeconds: 3600,
   },

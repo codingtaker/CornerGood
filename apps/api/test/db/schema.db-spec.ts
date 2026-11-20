@@ -13,9 +13,10 @@ import { createKysely } from '../../src/database/kysely';
 import { runMigrations } from '../../src/database/migrator';
 import { APP_ROLE_GRANTS as GRANTS_0003 } from '../../src/database/migrations/0003_least_privilege_app_role';
 import { APP_ROLE_GRANTS as GRANTS_0004 } from '../../src/database/migrations/0004_auth_throttle';
+import { APP_ROLE_GRANTS as GRANTS_0005 } from '../../src/database/migrations/0005_otp_codes';
 
 /** Grants of the API role, migration by migration: add each new one here. */
-const APP_ROLE_GRANTS = { ...GRANTS_0003, ...GRANTS_0004 };
+const APP_ROLE_GRANTS = { ...GRANTS_0003, ...GRANTS_0004, ...GRANTS_0005 };
 import { seedReferenceData } from '../../src/database/seeder';
 import {
   assertDisposableConnectedDatabase,

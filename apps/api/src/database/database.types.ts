@@ -100,6 +100,19 @@ export interface AuthThrottleTable {
   updated_at: Generated<Date>;
 }
 
+export type OtpPurpose = 'LOGIN_UNLOCK' | 'PASSWORD_RESET';
+
+export interface OtpCodesTable {
+  id: Generated<string>;
+  user_id: string;
+  purpose: OtpPurpose;
+  code_hash: ColumnType<Buffer, Buffer, never>;
+  attempts: Generated<number>;
+  created_at: CreatedAt;
+  expires_at: Timestamp;
+  consumed_at: Timestamp | null;
+}
+
 export interface CategoriesTable {
   id: Generated<string>;
   parent_id: string | null;
@@ -247,4 +260,5 @@ export interface Database {
   moderation_log: ModerationLogTable;
   reports: ReportsTable;
   auth_throttle: AuthThrottleTable;
+  otp_codes: OtpCodesTable;
 }
