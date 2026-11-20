@@ -147,6 +147,10 @@ describe('readCookie', () => {
     );
   });
 
+  it('returns null for a value that cannot be decoded, instead of throwing', () => {
+    expect(readCookie('cg_session=%E0%A4%A', 'cg_session')).toBeNull();
+  });
+
   it('returns null when absent', () => {
     expect(readCookie(undefined, 'cg_session')).toBeNull();
     expect(readCookie('cg_session_old=1', 'cg_session')).toBeNull();
