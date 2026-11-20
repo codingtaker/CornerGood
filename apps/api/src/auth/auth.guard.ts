@@ -23,7 +23,13 @@ export function readCookie(
   for (const part of (header ?? '').split(';')) {
     const separator = part.indexOf('=');
     if (separator > 0 && part.slice(0, separator).trim() === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
+      // A malformed %-sequence ("%E0%A4%A") makes decodeURIComponent throw:
+      // such a cookie opens no session, like a missing one (review point 4).
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        return null;
+      }
     }
   }
   return null;

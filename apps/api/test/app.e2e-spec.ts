@@ -40,6 +40,25 @@ describe('API (e2e)', () => {
     return request(app.getHttpServer()).get('/api/v1/unknown').expect(404);
   });
 
+  // Code review of 2026-11-20, point 4: an undecodable cookie used to give 500.
+  describe('a malformed session cookie', () => {
+    const malformed = 'cg_session=%E0%A4%A';
+
+    it('answers 401 on a protected route', () => {
+      return request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set('Cookie', malformed)
+        .expect(401);
+    });
+
+    it('still signs out', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/auth/logout')
+        .set('Cookie', malformed)
+        .expect(204);
+    });
+  });
+
   // Code review of 2026-11-20, point 3: what another site's HTML form can send
   // never reaches the sign-in (login CSRF).
   describe('requests from another site', () => {
