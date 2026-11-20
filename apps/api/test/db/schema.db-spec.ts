@@ -1,5 +1,7 @@
 import { Kysely, sql } from 'kysely';
+import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
+import { WEB_BOUNDARIES_PATH } from '../../src/database/geodata/generate-web-boundaries';
 import { recoverAdmin } from '../../src/admin/admin-recovery';
 import { createFirstAdmin, FirstAdminError } from '../../src/admin/first-admin';
 import { checkCredentials } from '../../src/auth/credentials';
@@ -181,6 +183,39 @@ describeWithDatabase('database schema', () => {
         ) union_parts
       `.execute(db);
       expect(rows[0]).toEqual({ parts: 1, holes: 0 });
+    });
+
+    // The light copy drawn by the web app (npm run geo:web).
+    it('keeps the web boundaries close, valid and without gap or overlap', async () => {
+      const web = readFileSync(WEB_BOUNDARIES_PATH, 'utf8');
+      const { rows } = await sql<{
+        maxShiftM: number;
+        invalid: number;
+        overlapM2: number;
+        holes: number;
+      }>`
+        WITH web AS (
+          SELECT f->'properties'->>'slug' AS slug,
+            ST_SetSRID(ST_GeomFromGeoJSON(f->>'geometry'), 4326) AS g
+          FROM json_array_elements(${web}::json->'features') f
+        )
+        SELECT
+          (SELECT max(ST_HausdorffDistance(ST_Transform(web.g, 32631),
+                    ST_Transform(c.boundary::geometry, 32631)))
+             FROM web JOIN communes c USING (slug))::float8 AS "maxShiftM",
+          (SELECT count(*) FROM web WHERE NOT ST_IsValid(g))::int AS invalid,
+          (SELECT COALESCE(sum(ST_Area(ST_Intersection(a.g, b.g)::geography)), 0)
+             FROM web a JOIN web b ON a.slug < b.slug AND ST_Intersects(a.g, b.g))::float8
+            AS "overlapM2",
+          (SELECT sum(ST_NumInteriorRings(part))
+             FROM (SELECT (ST_Dump(ST_Union(g))).geom AS part FROM web) parts)::int AS holes
+      `.execute(db);
+
+      expect(rows[0].invalid).toBe(0);
+      expect(rows[0].holes).toBe(0);
+      expect(rows[0].overlapM2).toBeLessThan(1);
+      // Measured: 23 m (MIN_TRIANGLE_AREA_M2 in generate-web-boundaries.ts).
+      expect(rows[0].maxShiftM).toBeLessThan(30);
     });
 
     it('can be seeded twice without duplicates', async () => {

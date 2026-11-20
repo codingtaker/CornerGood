@@ -24,6 +24,7 @@
     "admin:create": "ts-node --transpile-only src/admin/create-admin.ts",
     "admin:recover": "ts-node --transpile-only src/admin/recover-admin.ts",
     "geo:boundaries": "ts-node --transpile-only src/database/geodata/generate-commune-boundaries.ts",
+    "geo:web": "ts-node --transpile-only src/database/geodata/generate-web-boundaries.ts",
     "test:db": "jest --config ./test/jest-db.json --runInBand"
   },
   "dependencies": {
@@ -47,6 +48,9 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-server": "^3.0.4",
+    "@types/topojson-simplify": "^3.0.3",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
@@ -55,6 +59,9 @@
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
+    "topojson-client": "^3.1.0",
+    "topojson-server": "^3.0.1",
+    "topojson-simplify": "^3.0.3",
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
