@@ -1,6 +1,7 @@
 import { Kysely, sql } from 'kysely';
 import { Pool } from 'pg';
-import { createFirstAdmin } from '../../src/admin/first-admin';
+import { recoverAdmin } from '../../src/admin/admin-recovery';
+import { createFirstAdmin, FirstAdminError } from '../../src/admin/first-admin';
 import { verifyPassword } from '../../src/auth/password-hasher';
 import { createDatabasePool } from '../../src/database/database.module';
 import { Database } from '../../src/database/database.types';
@@ -672,6 +673,146 @@ describeWithDatabase('database schema', () => {
       await expect(
         createFirstAdmin(db, { ...input, phone: '+22890000098', email: null }),
       ).rejects.toThrow('An administrator already exists');
+      const { total } = await db
+        .selectFrom('users')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .where('role', '=', 'ADMIN')
+        .executeTakeFirstOrThrow();
+      expect(total).toBe('1');
+    });
+
+    describe('admin:recover', () => {
+      const newPassword = 'a brand new password';
+      const setActive = (phone: string, isActive: boolean) =>
+        db
+          .updateTable('users')
+          .set({ is_active: isActive })
+          .where('phone', '=', phone)
+          .execute();
+
+      it('refuses an unknown phone and a non-administrator', async () => {
+        await expect(
+          recoverAdmin(db, '+22899999999', newPassword),
+        ).rejects.toThrow('No account uses this ADMIN_PHONE.');
+        await expect(
+          recoverAdmin(db, '+22890000001', newPassword),
+        ).rejects.toThrow('This account is not an administrator');
+      });
+
+      it('restores the only administrator once deactivated, and closes its sessions', async () => {
+        const { id } = await db
+          .selectFrom('users')
+          .select('id')
+          .where('phone', '=', input.phone)
+          .executeTakeFirstOrThrow();
+        await setActive(input.phone, false);
+        await db
+          .insertInto('sessions')
+          .values({
+            token_hash: Buffer.alloc(32, 7),
+            user_id: id,
+            expires_at: new Date(Date.now() + 3_600_000),
+          })
+          .execute();
+
+        await expect(
+          recoverAdmin(db, input.phone, newPassword),
+        ).resolves.toEqual({ id, wasActive: false });
+
+        const admin = await db
+          .selectFrom('users')
+          .select(['is_active', 'password_hash'])
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow();
+        expect(admin.is_active).toBe(true);
+        await expect(
+          verifyPassword(newPassword, admin.password_hash),
+        ).resolves.toBe(true);
+        await expect(
+          verifyPassword(input.password, admin.password_hash),
+        ).resolves.toBe(false);
+        const sessions = await db
+          .selectFrom('sessions')
+          .select('token_hash')
+          .where('user_id', '=', id)
+          .execute();
+        expect(sessions).toEqual([]);
+      });
+
+      it('refuses while another administrator is active', async () => {
+        await db
+          .insertInto('users')
+          .values({
+            full_name: 'Second Admin',
+            phone: '+22890000097',
+            password_hash: 'x',
+            role: 'ADMIN',
+          })
+          .execute();
+        await setActive(input.phone, false);
+
+        await expect(
+          recoverAdmin(db, input.phone, newPassword),
+        ).rejects.toThrow('Another administrator is active');
+
+        await db
+          .deleteFrom('users')
+          .where('phone', '=', '+22890000097')
+          .execute();
+        await setActive(input.phone, true);
+      });
+    });
+
+    it('lets only one of two simultaneous runs create the first administrator', async () => {
+      await db.deleteFrom('users').where('role', '=', 'ADMIN').execute();
+
+      // Force the worst interleaving. A SHARE lock on users lets the runs read
+      // but blocks their INSERT, so without the advisory lock both would see
+      // "no administrator" and both insert once it is released. With it, the
+      // second run waits for the first one to finish and then sees its admin.
+      const blocker = await pool.connect();
+      let runs: Promise<PromiseSettledResult<{ id: string }>[]>;
+      try {
+        await blocker.query('BEGIN; LOCK TABLE users IN SHARE MODE');
+        runs = Promise.allSettled([
+          createFirstAdmin(db, {
+            ...input,
+            phone: '+22890000096',
+            email: null,
+          }),
+          createFirstAdmin(db, {
+            ...input,
+            phone: '+22890000095',
+            email: null,
+          }),
+        ]);
+        // Wait until both runs are blocked: one on the table, one on the
+        // advisory lock (or both on the table, without the advisory lock).
+        // Asked from another connection: inside the blocker's transaction,
+        // pg_stat_activity would stay frozen at its first read.
+        for (let attempt = 0; ; attempt += 1) {
+          const { rows } = await sql<{ waiting: number }>`
+            SELECT count(*)::int AS waiting FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'
+          `.execute(db);
+          if (rows[0].waiting >= 2) break;
+          if (attempt > 200) throw new Error('The two runs never both waited');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      } finally {
+        await blocker.query('COMMIT');
+        blocker.release();
+      }
+      const results = await runs;
+
+      expect(results.map((result) => result.status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      const failure = results.find((result) => result.status === 'rejected');
+      expect((failure as PromiseRejectedResult).reason).toBeInstanceOf(
+        FirstAdminError,
+      );
       const { total } = await db
         .selectFrom('users')
         .select((eb) => eb.fn.countAll<string>().as('total'))

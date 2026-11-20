@@ -2,6 +2,7 @@ import {
   checkTypedPassword,
   FirstAdminError,
   readFirstAdminIdentity,
+  readRecoveryPhone,
 } from './first-admin';
 
 const validEnv = {
@@ -52,6 +53,23 @@ describe('readFirstAdminIdentity', () => {
       'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt',
     );
     expect(run).not.toThrow('left-in-env-file');
+  });
+});
+
+describe('readRecoveryPhone', () => {
+  it('normalises the phone', () => {
+    expect(readRecoveryPhone({ ADMIN_PHONE: '+228 90.00-00 00' })).toBe(
+      '+22890000000',
+    );
+  });
+
+  it('refuses a missing phone and a password left in the environment', () => {
+    expect(() => readRecoveryPhone({ ADMIN_PASSWORD: 'left-behind' })).toThrow(
+      [
+        'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt',
+        'ADMIN_PHONE must be in international format, e.g. +22890000000',
+      ].join('\n'),
+    );
   });
 });
 

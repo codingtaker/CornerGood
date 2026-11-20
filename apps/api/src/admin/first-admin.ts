@@ -1,4 +1,4 @@
-import { Kysely, sql } from 'kysely';
+import { Kysely, sql, Transaction } from 'kysely';
 import { hashPassword } from '../auth/password-hasher';
 import { Database } from '../database/database.types';
 
@@ -15,6 +15,10 @@ export const MIN_PASSWORD_LENGTH = 12;
 const MAX_PASSWORD_LENGTH = 256;
 // Same rule as the CHECK constraint on users.phone (E.164).
 const PHONE_PATTERN = /^\+[1-9][0-9]{7,14}$/;
+const PHONE_PROBLEM =
+  'ADMIN_PHONE must be in international format, e.g. +22890000000';
+const ENV_PASSWORD_PROBLEM =
+  'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface FirstAdminIdentity {
@@ -34,23 +38,19 @@ export function readFirstAdminIdentity(
   env: NodeJS.ProcessEnv,
 ): FirstAdminIdentity {
   const fullName = (env.ADMIN_FULL_NAME ?? '').trim().replace(/\s+/g, ' ');
-  const phone = (env.ADMIN_PHONE ?? '').replace(/[\s.-]/g, '');
+  const phone = normalisePhone(env.ADMIN_PHONE);
   const email = (env.ADMIN_EMAIL ?? '').trim().toLowerCase() || null;
 
   const problems: string[] = [];
   // ADR-047: the password is typed, never read from a file or a variable.
   if (env.ADMIN_PASSWORD !== undefined) {
-    problems.push(
-      'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt',
-    );
+    problems.push(ENV_PASSWORD_PROBLEM);
   }
   if (fullName.length < 2 || fullName.length > 120) {
     problems.push('ADMIN_FULL_NAME must be 2 to 120 characters long');
   }
   if (!PHONE_PATTERN.test(phone)) {
-    problems.push(
-      'ADMIN_PHONE must be in international format, e.g. +22890000000',
-    );
+    problems.push(PHONE_PROBLEM);
   }
   if (email !== null && !EMAIL_PATTERN.test(email)) {
     problems.push('ADMIN_EMAIL is not a valid email address');
@@ -59,6 +59,32 @@ export function readFirstAdminIdentity(
     throw new FirstAdminError(problems.join('\n'));
   }
   return { fullName, phone, email };
+}
+
+function normalisePhone(raw: string | undefined): string {
+  return (raw ?? '').replace(/[\s.-]/g, '');
+}
+
+/** For admin:recover, which only needs the phone of the account. */
+export function readRecoveryPhone(env: NodeJS.ProcessEnv): string {
+  const phone = normalisePhone(env.ADMIN_PHONE);
+  const problems: string[] = [];
+  if (env.ADMIN_PASSWORD !== undefined) problems.push(ENV_PASSWORD_PROBLEM);
+  if (!PHONE_PATTERN.test(phone)) problems.push(PHONE_PROBLEM);
+  if (problems.length > 0) {
+    throw new FirstAdminError(problems.join('\n'));
+  }
+  return phone;
+}
+
+/**
+ * Serialises admin:create and admin:recover until the end of the transaction,
+ * so two runs cannot both see "no administrator" or "no active administrator".
+ */
+export async function lockAdminAccounts(trx: Transaction<Database>) {
+  await sql`SELECT pg_advisory_xact_lock(hashtext('cornergood:first-admin'))`.execute(
+    trx,
+  );
 }
 
 /** Checks the password typed twice at the prompt. */
@@ -90,9 +116,7 @@ export async function createFirstAdmin(
 
   return db.transaction().execute(async (trx) => {
     // Two runs at the same time must not both see "no administrator yet".
-    await sql`SELECT pg_advisory_xact_lock(hashtext('cornergood:first-admin'))`.execute(
-      trx,
-    );
+    await lockAdminAccounts(trx);
 
     const existingAdmin = await trx
       .selectFrom('users')
@@ -101,7 +125,8 @@ export async function createFirstAdmin(
       .executeTakeFirst();
     if (existingAdmin) {
       throw new FirstAdminError(
-        'An administrator already exists: create other administrators from the application.',
+        'An administrator already exists: create other administrators from the application.' +
+          ' If no administrator can sign in any more, use npm run admin:recover.',
       );
     }
 
