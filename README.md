@@ -68,6 +68,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
   | Address, sign-up | 10 attempts in 1 h | blocked 5, 10, 20… minutes, up to 1 h |
 
   The address limits are generous because mobile operators put many customers behind one address. IPv6 addresses count by `/64` network.
+- **Requests from another site** (`apps/api/src/security/same-origin-json.ts`). Every `POST`, `PUT`, `PATCH` or `DELETE` must send its body as JSON (`415` otherwise: an HTML form cannot), and a browser request must come from `WEB_ORIGIN` (`403` when its `Origin` is another site or `Sec-Fetch-Site` says `cross-site`). This stops a third-party page from signing a visitor into another account (login CSRF) or acting in their name. Requests without these headers do not come from a browser and carry no visitor's cookies.
 - **Codes by SMS** (table `otp_codes`). `POST /auth/otp` sends a 6-digit code to a Togolese number (`+228` only), for one of two purposes:
   - `LOGIN_UNLOCK`: a number blocked after too many failures signs in with its password **and** the code, without waiting; whoever only knows the number can no longer lock its owner out;
   - `PASSWORD_RESET`: `POST /auth/password-reset` with the code sets a new password, closes every other session and signs in.

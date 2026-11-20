@@ -39,4 +39,34 @@ describe('API (e2e)', () => {
   it('unknown routes answer 404', () => {
     return request(app.getHttpServer()).get('/api/v1/unknown').expect(404);
   });
+
+  // Code review of 2026-11-20, point 3: what another site's HTML form can send
+  // never reaches the sign-in (login CSRF).
+  describe('requests from another site', () => {
+    it('refuses a sign-in posted as an HTML form', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .type('form')
+        .send({ phone: '90123456', password: 'x' })
+        .expect(415, { message: 'Le corps de la requête doit être du JSON.' });
+    });
+
+    it('refuses JSON sent by a page of another site', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .set('Origin', 'https://evil.example')
+        .send({ phone: '90123456', password: 'x' })
+        .expect(403, {
+          message: 'Requête refusée : elle ne vient pas de CornerGood.',
+        });
+    });
+
+    it('lets the web app sign out (a POST without a body)', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/auth/logout')
+        .set('Origin', process.env.WEB_ORIGIN as string)
+        .set('Sec-Fetch-Site', 'same-origin')
+        .expect(204);
+    });
+  });
 });
