@@ -1,5 +1,38 @@
 import { Logger } from '@nestjs/common';
-import { createDatabasePool } from './database.module';
+import { checkDatabaseRole, createDatabasePool } from './database.module';
+
+describe('checkDatabaseRole', () => {
+  const poolAs = (powerful: boolean) => ({
+    query: jest.fn().mockResolvedValue({
+      rows: [{ role: powerful ? 'cornergood' : 'cornergood_app', powerful }],
+    }),
+  });
+
+  it('accepts the least-privilege role', async () => {
+    await expect(
+      checkDatabaseRole(poolAs(false) as never, 'production'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('refuses a role with administrative rights in production', async () => {
+    await expect(
+      checkDatabaseRole(poolAs(true) as never, 'production'),
+    ).rejects.toThrow(
+      'The API connects to the database as "cornergood", a role with administrative rights.',
+    );
+  });
+
+  it('only warns elsewhere, so a fresh local setup still starts', async () => {
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    await expect(
+      checkDatabaseRole(poolAs(true) as never, 'development'),
+    ).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+});
 
 describe('createDatabasePool', () => {
   it('keeps the process alive when an idle connection is lost', async () => {

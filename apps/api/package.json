@@ -21,6 +21,7 @@
     "db:migrate": "ts-node --transpile-only src/database/migrate.ts latest",
     "db:migrate:down": "ts-node --transpile-only src/database/migrate.ts down",
     "db:seed": "ts-node --transpile-only src/database/seed.ts",
+    "db:app-role": "ts-node --transpile-only src/database/app-role.ts",
     "admin:create": "ts-node --transpile-only src/admin/create-admin.ts",
     "admin:recover": "ts-node --transpile-only src/admin/recover-admin.ts",
     "geo:boundaries": "ts-node --transpile-only src/database/geodata/generate-commune-boundaries.ts",

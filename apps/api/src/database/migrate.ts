@@ -1,6 +1,6 @@
 import { createDatabasePool } from './database.module';
 import { createKysely } from './kysely';
-import { readDatabaseUrl } from './load-env';
+import { readOwnerDatabaseUrl } from './load-env';
 import {
   assertMigrationAllowed,
   MigrationDirection,
@@ -21,7 +21,8 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const db = createKysely(createDatabasePool(readDatabaseUrl()));
+  // Migrations change the schema: they run as the owner, not as the API role.
+  const db = createKysely(createDatabasePool(readOwnerDatabaseUrl()));
 
   try {
     const { error, results } = await runMigrations(db, direction);

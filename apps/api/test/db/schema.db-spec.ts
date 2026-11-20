@@ -11,6 +11,7 @@ import { createDatabasePool } from '../../src/database/database.module';
 import { Database } from '../../src/database/database.types';
 import { createKysely } from '../../src/database/kysely';
 import { runMigrations } from '../../src/database/migrator';
+import { APP_ROLE_GRANTS } from '../../src/database/migrations/0003_least_privilege_app_role';
 import { seedReferenceData } from '../../src/database/seeder';
 import {
   assertDisposableConnectedDatabase,
@@ -916,6 +917,105 @@ describeWithDatabase('database schema', () => {
         checkCredentials(db, '+22899999990', 'not the password'),
       );
       expect(unknownMs).toBeGreaterThan(knownMs / 2);
+    });
+  });
+
+  describe('least-privilege API role (migration 0003)', () => {
+    /** Runs `query` as cornergood_app, in a transaction rolled back after. */
+    async function asApp(query: string): Promise<void> {
+      await db.transaction().execute(async (trx) => {
+        await sql`SET LOCAL ROLE cornergood_app`.execute(trx);
+        await sql.raw(query).execute(trx);
+        throw new RollBack();
+      });
+    }
+    class RollBack extends Error {}
+    const allowed = async (query: string) =>
+      expect(asApp(query)).rejects.toBeInstanceOf(RollBack);
+    const refused = async (query: string, reason: RegExp) =>
+      expect(asApp(query)).rejects.toThrow(reason);
+
+    it('has no administrative rights', async () => {
+      const { rows } = await sql<{ powerful: boolean }>`
+        SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication
+          AS powerful
+        FROM pg_roles WHERE rolname = 'cornergood_app'
+      `.execute(db);
+      expect(rows).toEqual([{ powerful: false }]);
+    });
+
+    it('has exactly the grants of the migration, on every table', async () => {
+      const { rows } = await sql<{ table: string; privileges: string }>`
+        SELECT c.relname AS table,
+          COALESCE((
+            SELECT string_agg(p, ', ' ORDER BY p) FROM unnest(
+              ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']
+            ) AS p
+            WHERE has_table_privilege('cornergood_app', c.oid, p)
+          ), '') AS privileges
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'spatial_ref_sys'
+        ORDER BY c.relname
+      `.execute(db);
+
+      const expected = Object.fromEntries(
+        Object.entries(APP_ROLE_GRANTS).map(([table, privileges]) => [
+          table,
+          privileges.split(', ').sort().join(', '),
+        ]),
+      );
+      // A new table without its grant shows up here with ''.
+      expect(
+        Object.fromEntries(rows.map((row) => [row.table, row.privileges])),
+      ).toEqual({
+        ...expected,
+        kysely_migration: '',
+        kysely_migration_lock: '',
+      });
+    });
+
+    it('reads and writes the rows the API needs', async () => {
+      await allowed('SELECT count(*) FROM communes');
+      await allowed(
+        `INSERT INTO users (full_name, phone, password_hash, role)
+         VALUES ('Role Test', '+22890000070', 'x', 'PROFESSIONAL')`,
+      );
+    });
+
+    it('cannot tamper with the moderation log, even before its trigger', async () => {
+      await refused('DELETE FROM moderation_log', /permission denied/);
+      await refused(
+        'UPDATE moderation_log SET reason = NULL',
+        /permission denied/,
+      );
+      await refused('TRUNCATE moderation_log', /permission denied/);
+      await refused(
+        'ALTER TABLE moderation_log DISABLE TRIGGER moderation_log_append_only',
+        /must be owner/,
+      );
+    });
+
+    it('cannot change the schema, the territory or the migration history', async () => {
+      await refused('CREATE TABLE stolen (id int)', /permission denied/);
+      await refused('DROP TABLE reports', /must be owner/);
+      await refused("UPDATE communes SET name = 'x'", /permission denied/);
+      await refused('SELECT * FROM kysely_migration', /permission denied/);
+      await refused('DELETE FROM users', /permission denied/);
+    });
+
+    it('cannot become another role or run programs on the server', async () => {
+      // SET ROLE is checked against the role that signed in. Here that is the
+      // test superuser, so it cannot be tried directly: what forbids it for the
+      // API is that cornergood_app is a member of no other role.
+      const { rows } = await sql<{ memberships: number }>`
+        SELECT count(*)::int AS memberships FROM pg_auth_members m
+        JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'cornergood_app'
+      `.execute(db);
+      expect(rows[0].memberships).toBe(0);
+      await refused(
+        "COPY (SELECT 1) TO PROGRAM 'echo pwned'",
+        /permission denied/,
+      );
     });
   });
 

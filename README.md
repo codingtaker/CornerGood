@@ -20,17 +20,31 @@ The two applications live in one repository and share a single `package-lock.jso
 ## First start
 
 ```bash
-cp .env.example .env                       # then change POSTGRES_PASSWORD and DATABASE_URL
+cp .env.example .env                       # then set the two passwords (see "Database roles")
 cp apps/web/.env.example apps/web/.env.local
 npm install
 npm run db:up                              # starts PostgreSQL + PostGIS on localhost:$DB_PORT (default 5432)
-npm run db:migrate                         # creates the tables
+npm run db:migrate                         # creates the tables and the API role
+npm run db:app-role                        # lets the API role sign in with the password of DATABASE_URL
 npm run db:seed                            # loads the 13 communes and the initial categories
 npm run dev:api                            # http://localhost:3001/api/v1/health
 npm run dev:web                            # http://localhost:3000
 ```
 
 `GET /api/v1/health` returns the PostGIS version when the database is reachable, and `503` otherwise.
+
+## Database roles
+
+The API never connects as the owner of the database. Two connections are configured in `.env`:
+
+| Variable | Role | Used by |
+|---|---|---|
+| `DATABASE_URL` | `cornergood_app`: reads and writes rows only, table by table (migration `0003`) | the API, `admin:create`, `admin:recover`, `geo:boundaries` |
+| `DATABASE_OWNER_URL` | the owner (`POSTGRES_USER`) | `db:migrate`, `db:seed`, `db:app-role` |
+
+`cornergood_app` cannot change the schema, truncate a table, disable a trigger, delete accounts, listings or categories, modify the territory, or touch the moderation log except to add to it. Migration `0003` creates it without a password; `npm run db:app-role` gives it the password written in `DATABASE_URL` (16 characters or more), so that password is stored only in `.env` or in the host's secrets. A new table needs its grant in its migration: a database test fails otherwise.
+
+The API refuses to start in production when `DATABASE_URL` connects with administrative rights, and logs a warning elsewhere.
 
 ## Accounts and sessions
 
@@ -58,6 +72,7 @@ npm run dev:web                            # http://localhost:3000
 | `npm run build` | Production build of both applications |
 | `npm run db:migrate` | Apply pending migrations (`apps/api/src/database/migrations`) |
 | `npm run db:migrate:down` | Revert the last migration (development only: refused when `NODE_ENV=production`; in production, fix with a new migration) |
+| `npm run db:app-role` | Let the API role sign in with the password of `DATABASE_URL`; run again to change it |
 | `npm run db:seed` | Load reference data; safe to run several times. Communes are updated; categories are only added when missing, so edits made by administrators are kept |
 | `npm run geo:boundaries -- <pdf>` | Regenerate the commune boundaries from the ministry's GeoPDF (see *Data sources*); needs `DATABASE_URL` for PostGIS |
 | `npm run admin:create` | Create the first administrator (see below); refused once an administrator exists |
@@ -69,8 +84,10 @@ To create the test database once Docker is running:
 ```bash
 docker compose exec db createdb -U cornergood cornergood_test
 # then, in .env or your shell:
-# TEST_DATABASE_URL=postgres://cornergood:<password>@localhost:$DB_PORT/cornergood_test
+# TEST_DATABASE_URL=postgres://cornergood:<owner password>@localhost:$DB_PORT/cornergood_test
 ```
+
+The tests connect as the owner, to rebuild the schema, and run the API itself as `cornergood_app`.
 
 ## First administrator
 
@@ -95,7 +112,7 @@ The account is reactivated, gets the new password, and all its sessions are clos
 - Migrations are plain SQL inside Kysely migration files, numbered `0001_…`, `0002_…`. A merged migration is never edited: a change goes into a new migration.
 - Closed lists are `text` columns with a `CHECK`, not PostgreSQL `ENUM` types, so values can be changed later.
 - Single-row business rules (location types, a reason for every rejection, one primary location, one pending revision) are enforced by constraints as well as by the API.
-- `moderation_log` is append-only: a trigger rejects any update or deletion.
+- `moderation_log` is append-only: a trigger rejects any update or deletion, and the API role is only granted `SELECT` and `INSERT` on it.
 - Coordinates are `geography(Point, 4326)`; remember that `ST_MakePoint` takes the **longitude first**.
 
 ## Rules
