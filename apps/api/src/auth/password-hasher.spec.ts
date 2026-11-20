@@ -1,4 +1,9 @@
-import { hashPassword, verifyPassword } from './password-hasher';
+import {
+  hashPassword,
+  spendVerificationTime,
+  verifyPassword,
+} from './password-hasher';
+import { medianMs } from '../../test/timing';
 
 describe('password hasher', () => {
   it('verifies the right password and rejects a wrong one', async () => {
@@ -37,5 +42,33 @@ describe('password hasher', () => {
     'bcrypt$N=32768,r=8,p=3$c2FsdA==$AAAA',
   ])('returns false for the malformed hash %s', async (stored) => {
     await expect(verifyPassword('whatever', stored)).resolves.toBe(false);
+  });
+
+  /*
+   * Timing: a dummy or malformed check must cost about as much as a real one.
+   * Without the dummy work it would take well under 1% of the time, so a loose
+   * bound (at least half) is safe against machine noise.
+   */
+  describe('response time', () => {
+    let stored: string;
+    let realMs: number;
+
+    beforeAll(async () => {
+      stored = await hashPassword('the real password');
+      realMs = await medianMs(() => verifyPassword('a wrong password', stored));
+    });
+
+    it('spends as long without an account as with one', async () => {
+      await expect(spendVerificationTime('anything')).resolves.toBe(false);
+      const dummyMs = await medianMs(() => spendVerificationTime('anything'));
+      expect(dummyMs).toBeGreaterThan(realMs / 2);
+    });
+
+    it('spends as long on a malformed stored hash as on a real one', async () => {
+      const malformedMs = await medianMs(() =>
+        verifyPassword('a wrong password', 'not-a-real-hash'),
+      );
+      expect(malformedMs).toBeGreaterThan(realMs / 2);
+    });
   });
 });

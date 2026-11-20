@@ -71,13 +71,16 @@ function parseHash(
   return { params: { N, r, p }, salt, key };
 }
 
-/** False for a wrong password and for a malformed stored hash. */
+/**
+ * False for a wrong password and for a malformed stored hash. Either way it
+ * takes as long as a real verification, so the answer time says nothing.
+ */
 export async function verifyPassword(
   password: string,
   stored: string,
 ): Promise<boolean> {
   const parsed = parseHash(stored);
-  if (!parsed) return false;
+  if (!parsed) return spendVerificationTime(password);
   try {
     const candidate = await derive(password, parsed.salt, parsed.params);
     return timingSafeEqual(candidate, parsed.key);
@@ -85,4 +88,15 @@ export async function verifyPassword(
     // scrypt refuses some parameter combinations: treat them as a bad hash.
     return false;
   }
+}
+
+/**
+ * Does the work of verifying a password against a hash made today, then
+ * answers false. Sign-in calls it when no account matches the phone: without
+ * it, an unknown number would be answered at once and a known one after a
+ * full scrypt, so the delay alone would reveal who has an account.
+ */
+export async function spendVerificationTime(password: string): Promise<false> {
+  await derive(password, randomBytes(SALT_BYTES), DEFAULT_PARAMS);
+  return false;
 }

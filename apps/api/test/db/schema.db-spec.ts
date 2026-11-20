@@ -2,7 +2,9 @@ import { Kysely, sql } from 'kysely';
 import { Pool } from 'pg';
 import { recoverAdmin } from '../../src/admin/admin-recovery';
 import { createFirstAdmin, FirstAdminError } from '../../src/admin/first-admin';
-import { verifyPassword } from '../../src/auth/password-hasher';
+import { checkCredentials } from '../../src/auth/credentials';
+import { hashPassword, verifyPassword } from '../../src/auth/password-hasher';
+import { medianMs } from '../timing';
 import { createDatabasePool } from '../../src/database/database.module';
 import { Database } from '../../src/database/database.types';
 import { createKysely } from '../../src/database/kysely';
@@ -819,6 +821,66 @@ describeWithDatabase('database schema', () => {
         .where('role', '=', 'ADMIN')
         .executeTakeFirstOrThrow();
       expect(total).toBe('1');
+    });
+  });
+
+  describe('sign-in credentials (S2)', () => {
+    const phone = '+22890000080';
+    const password = 'the right password';
+
+    beforeAll(async () => {
+      await db
+        .insertInto('users')
+        .values({
+          full_name: 'Yawa Agbeko',
+          phone,
+          password_hash: await hashPassword(password),
+          role: 'PROFESSIONAL',
+        })
+        .execute();
+    });
+
+    it('returns the user for the right password', async () => {
+      await expect(checkCredentials(db, phone, password)).resolves.toEqual({
+        id: expect.any(String) as string,
+        role: 'PROFESSIONAL',
+        fullName: 'Yawa Agbeko',
+      });
+    });
+
+    it('returns null for a wrong password or an unknown phone', async () => {
+      await expect(
+        checkCredentials(db, phone, 'not the password'),
+      ).resolves.toBeNull();
+      await expect(
+        checkCredentials(db, '+22899999990', password),
+      ).resolves.toBeNull();
+    });
+
+    it('returns null for a deactivated account, even with its password', async () => {
+      await db
+        .updateTable('users')
+        .set({ is_active: false })
+        .where('phone', '=', phone)
+        .execute();
+      await expect(checkCredentials(db, phone, password)).resolves.toBeNull();
+      await db
+        .updateTable('users')
+        .set({ is_active: true })
+        .where('phone', '=', phone)
+        .execute();
+    });
+
+    // Without the dummy hash an unknown phone is answered in about 1 ms and a
+    // known one after a full scrypt: the delay alone would reveal accounts.
+    it('takes as long for an unknown phone as for a known one', async () => {
+      const knownMs = await medianMs(() =>
+        checkCredentials(db, phone, 'not the password'),
+      );
+      const unknownMs = await medianMs(() =>
+        checkCredentials(db, '+22899999990', 'not the password'),
+      );
+      expect(unknownMs).toBeGreaterThan(knownMs / 2);
     });
   });
 
