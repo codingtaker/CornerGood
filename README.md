@@ -87,7 +87,7 @@ The account is reactivated, gets the new password, and all its sessions are clos
 
 - Never commit `.env` files: this repository is public.
 - Code, identifiers and comments in English; product text in French.
-- Design decisions are recorded in the project's decision register (ADR-001 to ADR-042).
+- Design decisions are recorded in the project's decision register (ADR-001 to ADR-047), kept outside this repository. The code cites them by number.
 
 ## Data sources
 
