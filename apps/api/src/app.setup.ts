@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Express } from 'express';
 import { AppEnvironment } from './config/env.validation';
 
 /**
@@ -9,6 +10,12 @@ import { AppEnvironment } from './config/env.validation';
 export function configureApp(app: INestApplication): void {
   const config = app.get(ConfigService<AppEnvironment, true>);
 
+  // request.ip is the visitor's address only when it comes from a trusted
+  // proxy (the web app forwards /api/v1); the sign-in limits rely on it.
+  (app.getHttpAdapter().getInstance() as Express).set(
+    'trust proxy',
+    config.get('TRUST_PROXY', { infer: true }),
+  );
   app.setGlobalPrefix('api/v1');
   app.enableShutdownHooks();
   app.enableCors({

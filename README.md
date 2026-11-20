@@ -59,6 +59,16 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 
 - Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it.
 - Phone numbers are stored in international format; `90 12 34 56` is read as `+22890123456`.
+- **Sign-in limits** (table `auth_throttle`, shared by every API instance). Checked before the password, so a blocked client costs no hashing; the answer is `429` with `Retry-After` and "Trop de tentatives. Réessayez dans N minutes."
+
+  | Key | Allowed | Then |
+  |---|---|---|
+  | Phone number (account or not) | 5 failures in 24 h | blocked 1, 2, 4… minutes, up to 1 h; a successful sign-in clears it |
+  | Address, sign-in | 30 failures in 1 h | blocked 1, 2, 4… minutes, up to 30 min |
+  | Address, sign-up | 10 attempts in 1 h | blocked 5, 10, 20… minutes, up to 1 h |
+
+  The address limits are generous because mobile operators put many customers behind one address. IPv6 addresses count by `/64` network.
+- **`TRUST_PROXY`** names the proxies allowed to give the visitor's address (`X-Forwarded-For`): `loopback` by default, for the web app on the same machine. In production it must list **every** proxy in front of the API (the web app's server and any load balancer, as addresses or subnets); otherwise all visitors share the proxy's address and one person could block everyone. `true` is refused, since anyone could then forge their address.
 - The browser calls the API through the web app (`/api/v1/*` is forwarded to `API_URL`, see `apps/web/next.config.ts`), so the cookie belongs to the web app's own origin. The web app's `proxy.ts` sends visitors without a cookie from `/pro` and `/admin` to `/connexion`; the pages then ask the API who is signed in. The API decides access in every case.
 
 ## Useful commands

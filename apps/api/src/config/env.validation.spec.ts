@@ -13,7 +13,27 @@ describe('validateEnvironment', () => {
       API_PORT: 3001,
       WEB_ORIGIN: 'http://localhost:3000',
       NODE_ENV: 'development',
+      TRUST_PROXY: 'loopback',
     });
+  });
+
+  it('reads TRUST_PROXY as a hop count or a list of proxies', () => {
+    expect(
+      validateEnvironment({ ...validEnvironment, TRUST_PROXY: '1' })
+        .TRUST_PROXY,
+    ).toBe(1);
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        TRUST_PROXY: 'loopback, 10.0.0.0/8',
+      }).TRUST_PROXY,
+    ).toBe('loopback, 10.0.0.0/8');
+  });
+
+  it('refuses TRUST_PROXY=true, which lets anyone forge their address', () => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, TRUST_PROXY: 'true' }),
+    ).toThrow('TRUST_PROXY must name the proxies');
   });
 
   it('keeps NODE_ENV, which makes the session cookie Secure in production', () => {
