@@ -40,6 +40,25 @@ describe('API (e2e)', () => {
     return request(app.getHttpServer()).get('/api/v1/unknown').expect(404);
   });
 
+  // Code review of 2026-11-20, medium point: security headers.
+  it.each([
+    ['an answer', '/api/v1/health'],
+    ['an error', '/api/v1/unknown'],
+  ])(
+    'sends the security headers with %s, and no X-Powered-By',
+    async (_kind, path) => {
+      const response = await request(app.getHttpServer()).get(path);
+      expect(response.headers['x-powered-by']).toBeUndefined();
+      expect(response.headers).toMatchObject({
+        'x-content-type-options': 'nosniff',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+        'referrer-policy': 'no-referrer',
+        'cache-control': 'no-store',
+      });
+    },
+  );
+
   // Code review of 2026-11-20, point 4: an undecodable cookie used to give 500.
   describe('a malformed session cookie', () => {
     const malformed = 'cg_session=%E0%A4%A';
