@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -23,6 +25,7 @@ import {
   readSignUp,
 } from './account-input';
 import { OTP_TTL_MINUTES, OtpService } from './otp.service';
+import { AccountDeletionService } from './account-deletion.service';
 import { CurrentUser, readCookie, SessionGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import type { AuthenticatedUser } from './credentials';
@@ -42,6 +45,7 @@ export class AuthController {
     private readonly sessions: SessionService,
     private readonly throttle: ThrottleService,
     private readonly otp: OtpService,
+    private readonly accounts: AccountDeletionService,
     private readonly config: ConfigService<AppEnvironment, true>,
   ) {}
 
@@ -220,6 +224,46 @@ export class AuthController {
   @UseGuards(SessionGuard)
   me(@CurrentUser() user: AuthenticatedUser): { user: AuthenticatedUser } {
     return { user };
+  }
+
+  /**
+   * Deletes the signed-in account, confirmed by its password: personal data is
+   * erased, the row stays for the moderation log (AccountDeletionService).
+   */
+  @Delete('me')
+  @HttpCode(204)
+  @UseGuards(SessionGuard)
+  async deleteMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    // Wrong passwords counted per account, as at sign-in.
+    const key = `delete:user:${user.id}`;
+    await this.refuseWhileBlocked([key], response);
+
+    const password =
+      typeof body === 'object' &&
+      body !== null &&
+      typeof (body as { password?: unknown }).password === 'string'
+        ? (body as { password: string }).password
+        : '';
+    const outcome = await this.accounts.deleteAccount(user.id, password);
+    if (outcome === 'WRONG_PASSWORD') {
+      await this.throttle.record(key, this.throttle.policies.loginPhone);
+      throw new UnauthorizedException({
+        message: 'Mot de passe incorrect.',
+        field: 'password',
+      });
+    }
+    if (outcome === 'LAST_ADMIN') {
+      throw new ConflictException({
+        message:
+          'Vous êtes le seul administrateur actif : nommez-en un autre avant de supprimer votre compte.',
+      });
+    }
+    await this.throttle.clear(key);
+    response.clearCookie(SESSION_COOKIE, this.cookieOptions());
   }
 
   /**
