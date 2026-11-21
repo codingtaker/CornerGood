@@ -1,4 +1,5 @@
 import { Kysely, sql, Transaction } from 'kysely';
+import { normalisePhone } from '../auth/account-input';
 import { hashPassword } from '../auth/password-hasher';
 import { Database } from '../database/database.types';
 
@@ -13,10 +14,10 @@ import { Database } from '../database/database.types';
 
 export const MIN_PASSWORD_LENGTH = 12;
 const MAX_PASSWORD_LENGTH = 256;
-// Same rule as the CHECK constraint on users.phone (E.164).
-const PHONE_PATTERN = /^\+[1-9][0-9]{7,14}$/;
+// Read like at sign-up ("90 12 34 56" is +22890123456), so the number of an
+// account is written the same way everywhere.
 const PHONE_PROBLEM =
-  'ADMIN_PHONE must be in international format, e.g. +22890000000';
+  'ADMIN_PHONE is not a valid number, e.g. 90 12 34 56 or +22890123456';
 const ENV_PASSWORD_PROBLEM =
   'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,7 +50,7 @@ export function readFirstAdminIdentity(
   if (fullName.length < 2 || fullName.length > 120) {
     problems.push('ADMIN_FULL_NAME must be 2 to 120 characters long');
   }
-  if (!PHONE_PATTERN.test(phone)) {
+  if (!phone) {
     problems.push(PHONE_PROBLEM);
   }
   if (email !== null && !EMAIL_PATTERN.test(email)) {
@@ -58,11 +59,7 @@ export function readFirstAdminIdentity(
   if (problems.length > 0) {
     throw new FirstAdminError(problems.join('\n'));
   }
-  return { fullName, phone, email };
-}
-
-function normalisePhone(raw: string | undefined): string {
-  return (raw ?? '').replace(/[\s.-]/g, '');
+  return { fullName, phone: phone as string, email };
 }
 
 /** For admin:recover, which only needs the phone of the account. */
@@ -70,11 +67,11 @@ export function readRecoveryPhone(env: NodeJS.ProcessEnv): string {
   const phone = normalisePhone(env.ADMIN_PHONE);
   const problems: string[] = [];
   if (env.ADMIN_PASSWORD !== undefined) problems.push(ENV_PASSWORD_PROBLEM);
-  if (!PHONE_PATTERN.test(phone)) problems.push(PHONE_PROBLEM);
+  if (!phone) problems.push(PHONE_PROBLEM);
   if (problems.length > 0) {
     throw new FirstAdminError(problems.join('\n'));
   }
-  return phone;
+  return phone as string;
 }
 
 /**

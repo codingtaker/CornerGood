@@ -113,7 +113,7 @@ The tests connect as the owner, to rebuild the schema, and run the API itself as
 
 Public sign-up only creates professional accounts, and only an administrator can create another one (ADR-047). The first administrator is created once, from the command line, after `npm run db:migrate`:
 
-1. Set `ADMIN_FULL_NAME`, `ADMIN_PHONE` (international format, e.g. `+22890000000`) and optionally `ADMIN_EMAIL`, in `.env` or in your shell.
+1. Set `ADMIN_FULL_NAME`, `ADMIN_PHONE` (written as at sign-up: `90 12 34 56` or `+22890123456`) and optionally `ADMIN_EMAIL`, in `.env` or in your shell.
 2. Run `npm run admin:create` in an interactive terminal, and type the password twice when asked (12 characters or more). It is not shown on screen, and is stored only as a scrypt hash: it never goes into a file or the shell history.
 
 The command refuses to run when `ADMIN_PASSWORD` is set, when an administrator already exists, or when the phone or email belongs to another account.
