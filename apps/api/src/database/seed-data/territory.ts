@@ -52,14 +52,3 @@ export const PREFECTURES: PrefectureSeed[] = [
     communes: numberedCommunes('Agoè-Nyivé', 'agoe-nyive', 6),
   },
 ];
-
-/*
- * Approximate centre of each commune, in WGS 84 decimal degrees.
- *
- * TO VERIFY before use in the dissertation: these points only help propose a
- * commune when boundaries are missing, and the user always confirms the commune.
- * Fill in one entry per commune (a pin on the commune's town hall or main
- * landmark is enough). Communes without an entry keep a NULL centroid.
- */
-export const COMMUNE_CENTROIDS: { slug: string; lat: number; lng: number }[] =
-  [];

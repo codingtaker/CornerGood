@@ -2,7 +2,7 @@ import { Kysely, sql } from 'kysely';
 import { Database } from './database.types';
 import { CATEGORIES } from './seed-data/categories';
 import { COMMUNE_BOUNDARIES } from './seed-data/commune-boundaries';
-import { COMMUNE_CENTROIDS, PREFECTURES, REGION } from './seed-data/territory';
+import { PREFECTURES, REGION } from './seed-data/territory';
 
 export interface SeedReport {
   communes: number;
@@ -66,18 +66,6 @@ export async function seedReferenceData(
           .execute();
         communeCount += 1;
       }
-    }
-
-    for (const centroid of COMMUNE_CENTROIDS) {
-      // ST_MakePoint takes longitude first, then latitude.
-      await trx
-        .updateTable('communes')
-        .set({
-          centroid: sql<string>`ST_SetSRID(ST_MakePoint(${centroid.lng}, ${centroid.lat}), 4326)::geography`,
-          centroid_is_approximate: true,
-        })
-        .where('slug', '=', centroid.slug)
-        .execute();
     }
 
     for (const boundary of COMMUNE_BOUNDARIES) {
