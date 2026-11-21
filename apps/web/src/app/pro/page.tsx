@@ -51,6 +51,10 @@ export default async function ProPage() {
           Aller à la modération
         </Link>
       )}
+
+      <Link href="/pro/compte" className="underline opacity-80">
+        Mon compte et mes données
+      </Link>
     </main>
   );
 }

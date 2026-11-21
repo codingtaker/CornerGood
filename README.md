@@ -54,10 +54,12 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `POST /auth/login` | public | Signs in with phone and password; one message for every failure |
 | `POST /auth/logout` | public | Closes the session |
 | `GET /auth/me` | session | The signed-in user |
+| `DELETE /auth/me` | session + password | Deletes the account: personal data erased (see below) |
 | `GET /pro/…` | session | Professional space |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
 
 - Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it. Signing in again on a device closes the session its cookie held, and an account keeps at most 10 open sessions (the oldest are closed first). Every hour, each API instance deletes expired sessions, stale sign-in counters and SMS codes expired for a day (`MaintenanceService`).
+- **Deleting an account** (`DELETE /auth/me`, page `/pro/compte`), confirmed by the password; wrong passwords are counted like sign-in failures. The row of a user cannot be deleted, since listings and the moderation log refer to it and the log is evidence. So the account keeps its row, emptied of personal data (migration `0006`): name "Compte supprimé", no phone, no email, an unusable password, inactive, `deleted_at` set; a constraint makes the database refuse a "deleted" account that keeps any of these. Its sessions, SMS codes and sign-in counters are deleted, and its listings archived, each with a line in the moderation log. The number can then open a new account. The only active administrator cannot delete their account.
 - Phone numbers are stored in international format; `90 12 34 56` is read as `+22890123456`.
 - **Sign-in limits** (table `auth_throttle`, shared by every API instance). Checked before the password, so a blocked client costs no hashing; the answer is `429` with `Retry-After` and "Trop de tentatives. Réessayez dans N minutes."
 

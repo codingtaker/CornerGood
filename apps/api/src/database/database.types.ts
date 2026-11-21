@@ -74,7 +74,8 @@ export interface CommunesTable {
 export interface UsersTable {
   id: Generated<string>;
   full_name: string;
-  phone: string;
+  /** NULL only for a deleted account (migration 0006). */
+  phone: string | null;
   email: string | null;
   password_hash: string;
   role: UserRole;
@@ -82,6 +83,7 @@ export interface UsersTable {
   created_at: CreatedAt;
   updated_at: UpdatedAt;
   last_login_at: Timestamp | null;
+  deleted_at: Timestamp | null;
 }
 
 export interface SessionsTable {

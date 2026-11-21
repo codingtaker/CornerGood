@@ -7,6 +7,7 @@ import { App } from 'supertest/types';
 import { createFirstAdmin } from '../../src/admin/first-admin';
 import { AppModule } from '../../src/app.module';
 import { MaintenanceService } from '../../src/auth/maintenance.service';
+import { hashPassword } from '../../src/auth/password-hasher';
 import { configureApp } from '../../src/app.setup';
 import {
   createDatabasePool,
@@ -739,6 +740,176 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
       expect(left.rows[0]).toEqual({ sessions: 0, counters: 0, codes: 0 });
       // Live sessions are kept.
       expect(await sessionCount()).toBe(liveBefore - 1);
+    });
+  });
+
+  // Code review of 2026-11-20, personal data: deleting one's own account.
+  describe('account deletion', () => {
+    const leaver = {
+      phone: '97 60 00 01',
+      password: 'je pars proprement',
+      email: 'leaver@example.org',
+    };
+    let leaverId: string;
+    let cookie: string;
+    let listingId: string;
+
+    beforeAll(async () => {
+      const response = await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '203.0.113.90')
+        .send({ ...leaver, fullName: 'Edem Départ' })
+        .expect(201);
+      leaverId = (response.body as { user: { id: string } }).user.id;
+      cookie = sessionCookie(response);
+
+      const category = await db
+        .insertInto('categories')
+        .values({ name: 'Couture', slug: 'couture-deletion-test' })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      listingId = (
+        await db
+          .insertInto('establishments')
+          .values({
+            owner_id: leaverId,
+            created_by_id: leaverId,
+            category_id: category.id,
+            entity_type: 'BUSINESS',
+            name: 'Atelier Edem',
+            slug: 'atelier-edem-deletion-test',
+            description: 'Couture et retouches.',
+            phone: '+22897600001',
+            publication_status: 'PUBLISHED',
+            published_at: sql<Date>`now()`,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      ).id;
+    });
+
+    const deleteMe = (password: string, as = cookie) =>
+      http().delete('/api/v1/auth/me').set('Cookie', as).send({ password });
+
+    it('needs the password, and keeps everything when it is wrong', async () => {
+      await deleteMe('pas le bon').expect(401, {
+        message: 'Mot de passe incorrect.',
+        field: 'password',
+      });
+      await http().get('/api/v1/auth/me').set('Cookie', cookie).expect(200);
+    });
+
+    it('needs a session', async () => {
+      await http()
+        .delete('/api/v1/auth/me')
+        .send({ password: leaver.password })
+        .expect(401);
+    });
+
+    it('erases the personal data and keeps an anonymous row', async () => {
+      await deleteMe(leaver.password).expect(204);
+
+      const row = await db
+        .selectFrom('users')
+        .select([
+          'full_name',
+          'phone',
+          'email',
+          'is_active',
+          'deleted_at',
+          'password_hash',
+        ])
+        .where('id', '=', leaverId)
+        .executeTakeFirstOrThrow();
+      expect(row).toMatchObject({
+        full_name: 'Compte supprimé',
+        phone: null,
+        email: null,
+        is_active: false,
+      });
+      expect(row.deleted_at).not.toBeNull();
+      expect(row.password_hash).toBe('!deleted');
+
+      const traces = await sql<{ sessions: number; counters: number }>`
+        SELECT
+          (SELECT count(*) FROM sessions WHERE user_id = ${leaverId})::int AS sessions,
+          (SELECT count(*) FROM auth_throttle WHERE key LIKE '%+22897600001%')::int AS counters
+      `.execute(db);
+      expect(traces.rows[0]).toEqual({ sessions: 0, counters: 0 });
+    });
+
+    it('archives the listings, with a line in the moderation log', async () => {
+      const listing = await db
+        .selectFrom('establishments')
+        .select('publication_status')
+        .where('id', '=', listingId)
+        .executeTakeFirstOrThrow();
+      expect(listing.publication_status).toBe('ARCHIVED');
+
+      const log = await db
+        .selectFrom('moderation_log')
+        .select(['actor_id', 'action', 'from_status', 'to_status', 'reason'])
+        .where('establishment_id', '=', listingId)
+        .execute();
+      expect(log).toEqual([
+        {
+          actor_id: leaverId,
+          action: 'ARCHIVE',
+          from_status: 'PUBLISHED',
+          to_status: 'ARCHIVED',
+          reason: 'Compte supprimé par son titulaire',
+        },
+      ]);
+    });
+
+    it('opens nothing any more, and frees the number for a new account', async () => {
+      await http().get('/api/v1/auth/me').set('Cookie', cookie).expect(401);
+      await http()
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.91')
+        .send(leaver)
+        .expect(401);
+      await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '203.0.113.92')
+        .send({ ...leaver, fullName: 'Nouvelle Personne' })
+        .expect(201);
+    });
+
+    it('lets the database refuse a "deleted" account that keeps personal data', async () => {
+      await expect(
+        sql`UPDATE users SET deleted_at = now(), is_active = false
+            WHERE phone = '+22897600001'`.execute(db),
+      ).rejects.toThrow(/deleted_account_is_anonymous/);
+    });
+
+    it('refuses to delete the only active administrator', async () => {
+      const admin = await db
+        .insertInto('users')
+        .values({
+          full_name: 'Seul Admin',
+          phone: '+22897600099',
+          password_hash: await hashPassword('mot de passe admin'),
+          role: 'ADMIN',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      const signedIn = await http()
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.93')
+        .send({ phone: '97 60 00 99', password: 'mot de passe admin' })
+        .expect(200);
+
+      await deleteMe('mot de passe admin', sessionCookie(signedIn)).expect(409);
+      const still = await db
+        .selectFrom('users')
+        .select('deleted_at')
+        .where('id', '=', admin.id)
+        .executeTakeFirstOrThrow();
+      expect(still.deleted_at).toBeNull();
+
+      // Later tests create the first administrator themselves.
+      await db.deleteFrom('users').where('id', '=', admin.id).execute();
     });
   });
 
