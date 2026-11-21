@@ -31,7 +31,7 @@ npm run dev:api                            # http://localhost:3001/api/v1/health
 npm run dev:web                            # http://localhost:3000
 ```
 
-`GET /api/v1/health` returns the PostGIS version when the database is reachable, and `503` otherwise.
+`GET /api/v1/health` answers `{"status":"ok","database":"ok"}` when the database and PostGIS answer, and `503` otherwise. It does not give the PostGIS version: the route is public.
 
 ## Database roles
 
@@ -57,7 +57,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `GET /pro/…` | session | Professional space |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
 
-- Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it.
+- Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it. Signing in again on a device closes the session its cookie held, and an account keeps at most 10 open sessions (the oldest are closed first). Every hour, each API instance deletes expired sessions, stale sign-in counters and SMS codes expired for a day (`MaintenanceService`).
 - Phone numbers are stored in international format; `90 12 34 56` is read as `+22890123456`.
 - **Sign-in limits** (table `auth_throttle`, shared by every API instance). Checked before the password, so a blocked client costs no hashing; the answer is `429` with `Retry-After` and "Trop de tentatives. Réessayez dans N minutes."
 

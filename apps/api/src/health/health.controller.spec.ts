@@ -16,14 +16,14 @@ describe('HealthController', () => {
     controller = moduleRef.get(HealthController);
   });
 
-  it('reports the PostGIS version when the database answers', async () => {
-    query.mockResolvedValue({ rows: [{ version: '3.4.2' }] });
+  it('answers ok when PostGIS answers, without telling its version', async () => {
+    query.mockResolvedValue({ rows: [{ postgis_lib_version: '3.4.2' }] });
 
     await expect(controller.check()).resolves.toEqual({
       status: 'ok',
       database: 'ok',
-      postgisVersion: '3.4.2',
     });
+    expect(query).toHaveBeenCalledWith('SELECT postgis_lib_version()');
   });
 
   it('answers 503 without exposing the error when the database is down', async () => {

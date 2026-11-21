@@ -13,6 +13,8 @@ import { AuthenticatedUser } from './credentials';
 
 export const SESSION_COOKIE = 'cg_session';
 export const SESSION_DAYS = 30;
+/** Open sessions kept per account; the oldest go first beyond it. */
+export const MAX_SESSIONS_PER_USER = 10;
 const TOKEN_BYTES = 32;
 
 export function hashToken(token: string): Buffer {
@@ -23,18 +25,47 @@ export function hashToken(token: string): Buffer {
 export class SessionService {
   constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
 
-  /** Opens a session and returns the token to put in the cookie. */
-  async open(userId: string): Promise<{ token: string; expiresAt: Date }> {
+  /**
+   * Opens a session and returns the token to put in the cookie.
+   * `previousToken` is the session cookie the browser already had: it is
+   * closed, so signing in again on a device never leaves an old session open.
+   * Beyond MAX_SESSIONS_PER_USER, the account's oldest sessions are closed.
+   */
+  async open(
+    userId: string,
+    previousToken: string | null = null,
+  ): Promise<{ token: string; expiresAt: Date }> {
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(Date.now() + SESSION_DAYS * 86_400_000);
-    await this.db
-      .insertInto('sessions')
-      .values({
-        token_hash: hashToken(token),
-        user_id: userId,
-        expires_at: expiresAt,
-      })
-      .execute();
+
+    await this.db.transaction().execute(async (trx) => {
+      if (previousToken) {
+        await trx
+          .deleteFrom('sessions')
+          .where('token_hash', '=', hashToken(previousToken))
+          .execute();
+      }
+      await trx
+        .insertInto('sessions')
+        .values({
+          token_hash: hashToken(token),
+          user_id: userId,
+          expires_at: expiresAt,
+        })
+        .execute();
+      await trx
+        .deleteFrom('sessions')
+        .where('user_id', '=', userId)
+        .where('token_hash', 'in', (eb) =>
+          eb
+            .selectFrom('sessions')
+            .select('token_hash')
+            .where('user_id', '=', userId)
+            .orderBy('created_at', 'desc')
+            .offset(MAX_SESSIONS_PER_USER),
+        )
+        .execute();
+    });
     return { token, expiresAt };
   }
 

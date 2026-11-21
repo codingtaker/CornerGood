@@ -70,7 +70,7 @@ export class AuthController {
       throw error;
     }
     const user = await this.auth.signUp(input);
-    await this.startSession(user.id, response);
+    await this.startSession(user.id, request, response);
     return { user };
   }
 
@@ -115,7 +115,7 @@ export class AuthController {
       throw new UnauthorizedException({ message: SIGN_IN_FAILED });
     }
     if (phoneKey) await this.throttle.clear(phoneKey);
-    await this.startSession(user.id, response);
+    await this.startSession(user.id, request, response);
     return { user };
   }
 
@@ -201,7 +201,7 @@ export class AuthController {
     const user = await this.auth.setPassword(userId, input.password);
     await this.sessions.closeAll(userId);
     await this.throttle.clear(`login:phone:${input.phone}`);
-    await this.startSession(user.id, response);
+    await this.startSession(user.id, request, response);
     return { user };
   }
 
@@ -245,12 +245,19 @@ export class AuthController {
     }
   }
 
-  private async startSession(userId: string, response: Response) {
-    await Promise.all([
-      this.sessions.purgeExpired(),
-      this.throttle.purgeStale(),
-    ]);
-    const { token, expiresAt } = await this.sessions.open(userId);
+  /**
+   * New session for this browser, replacing the one its cookie held, if any.
+   * Expired rows are purged every hour by MaintenanceService.
+   */
+  private async startSession(
+    userId: string,
+    request: Request,
+    response: Response,
+  ) {
+    const { token, expiresAt } = await this.sessions.open(
+      userId,
+      readCookie(request.headers.cookie, SESSION_COOKIE),
+    );
     response.cookie(SESSION_COOKIE, token, {
       ...this.cookieOptions(),
       expires: expiresAt,
