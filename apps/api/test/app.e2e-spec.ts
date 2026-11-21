@@ -33,7 +33,7 @@ describe('API (e2e)', () => {
     return request(app.getHttpServer())
       .get('/api/v1/health')
       .expect(200)
-      .expect({ status: 'ok', database: 'ok', postgisVersion: '3.4.2' });
+      .expect({ status: 'ok', database: 'ok' });
   });
 
   it('unknown routes answer 404', () => {

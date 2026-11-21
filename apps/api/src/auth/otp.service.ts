@@ -78,12 +78,16 @@ export class OtpService {
           expires_at: sql<Date>`now() + ${`${OTP_TTL_MINUTES} minutes`}::interval`,
         })
         .execute();
-      await trx
-        .deleteFrom('otp_codes')
-        .where('expires_at', '<', sql<Date>`now() - interval '1 day'`)
-        .execute();
     });
     await this.sms.send(phone, otpMessage(code, purpose));
+  }
+
+  /** Codes expired for a day are of no use, even as a trace. */
+  async purgeExpired(): Promise<void> {
+    await this.db
+      .deleteFrom('otp_codes')
+      .where('expires_at', '<', sql<Date>`now() - interval '1 day'`)
+      .execute();
   }
 
   /** Starts issue() without waiting for it; failures are logged. */

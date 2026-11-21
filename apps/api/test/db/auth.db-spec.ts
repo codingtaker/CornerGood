@@ -6,6 +6,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { createFirstAdmin } from '../../src/admin/first-admin';
 import { AppModule } from '../../src/app.module';
+import { MaintenanceService } from '../../src/auth/maintenance.service';
 import { configureApp } from '../../src/app.setup';
 import {
   createDatabasePool,
@@ -635,6 +636,109 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
         .executeTakeFirstOrThrow();
       expect(row.code_hash.length).toBe(32);
       expect(row.code_hash.toString('latin1')).not.toContain(code);
+    });
+  });
+
+  // Code review of 2026-11-20, medium point: session housekeeping.
+  describe('session housekeeping', () => {
+    const member = { phone: '97 50 00 01', password: 'sessions bien rangées' };
+    let memberId: string;
+    const sessionCount = async () =>
+      Number(
+        (
+          await db
+            .selectFrom('sessions')
+            .select((eb) => eb.fn.countAll<string>().as('total'))
+            .where('user_id', '=', memberId)
+            .executeTakeFirstOrThrow()
+        ).total,
+      );
+    const signIn = (cookie?: string) => {
+      const call = http()
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.80');
+      if (cookie) call.set('Cookie', cookie);
+      return call.send(member).expect(200);
+    };
+
+    beforeAll(async () => {
+      const response = await http()
+        .post('/api/v1/auth/register')
+        .set('X-Forwarded-For', '203.0.113.81')
+        .send({ ...member, fullName: 'Sena Sessions' })
+        .expect(201);
+      memberId = (response.body as { user: { id: string } }).user.id;
+    });
+
+    it('closes the session the browser held when it signs in again', async () => {
+      const first = sessionCookie(await signIn());
+      const second = sessionCookie(await signIn(first));
+      await http().get('/api/v1/auth/me').set('Cookie', first).expect(401);
+      await http().get('/api/v1/auth/me').set('Cookie', second).expect(200);
+    });
+
+    it('keeps at most 10 sessions per account, closing the oldest', async () => {
+      await db.deleteFrom('sessions').where('user_id', '=', memberId).execute();
+      const oldest = Buffer.alloc(32, 1);
+      for (let index = 1; index <= 11; index += 1) {
+        await db
+          .insertInto('sessions')
+          .values({
+            token_hash: Buffer.alloc(32, index),
+            user_id: memberId,
+            created_at: sql<Date>`now() - ${`${12 - index} hours`}::interval`,
+            expires_at: sql<Date>`now() + interval '1 day'`,
+          })
+          .execute();
+      }
+
+      const newest = sessionCookie(await signIn());
+      expect(await sessionCount()).toBe(10);
+      await http().get('/api/v1/auth/me').set('Cookie', newest).expect(200);
+      const kept = await db
+        .selectFrom('sessions')
+        .select('token_hash')
+        .where('token_hash', '=', oldest)
+        .execute();
+      expect(kept).toEqual([]);
+    });
+
+    it('purges expired sessions, stale counters and old codes every hour, without a sign-in', async () => {
+      await db
+        .insertInto('sessions')
+        .values({
+          token_hash: Buffer.alloc(32, 99),
+          user_id: memberId,
+          created_at: sql<Date>`now() - interval '40 days'`,
+          expires_at: sql<Date>`now() - interval '10 days'`,
+        })
+        .execute();
+      await sql`
+        INSERT INTO auth_throttle (key, failures, window_started_at, updated_at)
+        VALUES ('login:ip:192.0.2.99', 3, now() - interval '3 days', now() - interval '3 days')
+      `.execute(db);
+      await sql`
+        INSERT INTO otp_codes (user_id, purpose, code_hash, created_at, expires_at, consumed_at)
+        VALUES (${memberId}, 'PASSWORD_RESET', ${Buffer.alloc(32, 7)},
+          now() - interval '3 days', now() - interval '3 days' + interval '10 minutes', now())
+      `.execute(db);
+      const liveBefore = await sessionCount();
+
+      await app.get(MaintenanceService).run();
+
+      const left = await sql<{
+        sessions: number;
+        counters: number;
+        codes: number;
+      }>`
+        SELECT
+          (SELECT count(*) FROM sessions WHERE expires_at <= now())::int AS sessions,
+          (SELECT count(*) FROM auth_throttle WHERE key = 'login:ip:192.0.2.99')::int AS counters,
+          (SELECT count(*) FROM otp_codes WHERE expires_at < now() - interval '1 day')::int AS codes
+      `.execute(db);
+      expect(left.rows[0]).toEqual({ sessions: 0, counters: 0, codes: 0 });
+      // Live sessions are kept.
+      expect(await sessionCount()).toBe(liveBefore - 1);
     });
   });
 
