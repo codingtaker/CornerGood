@@ -16,5 +16,11 @@ body {
   background: var(--background);
   color: var(--foreground);
   /* System fonts: no font download, which matters on slow mobile connections. */
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
 }

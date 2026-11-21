@@ -55,7 +55,8 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `POST /auth/logout` | public | Closes the session |
 | `GET /auth/me` | session | The signed-in user |
 | `DELETE /auth/me` | session + password | Deletes the account: personal data erased (see below) |
-| `GET /pro/…` | session | Professional space |
+| `GET /pro/listings`, `GET /pro/listings/:id` | session | The professional's own listings; the exact point is shown to the owner only (404 for anyone else) |
+| `POST /pro/listings` | session | Creates a draft listing with its location (see *Listings* below) |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
 
 - Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it. Signing in again on a device closes the session its cookie held, and an account keeps at most 10 open sessions (the oldest are closed first). Every hour, each API instance deletes expired sessions, stale sign-in counters and SMS codes expired for a day (`MaintenanceService`).
@@ -80,6 +81,24 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 - **`SMS_PROVIDER`** chooses who sends the SMS (`apps/api/src/sms/sms.module.ts`). Only `console` exists for now: it writes the SMS, code included, in the API logs, and the API refuses to start with it in production. The real provider is still to be chosen; adding one means a class implementing `SmsSender` and its name in `SMS_PROVIDERS`.
 - **`TRUST_PROXY`** names the proxies allowed to give the visitor's address (`X-Forwarded-For`): `loopback` by default, for the web app on the same machine. In production it must list **every** proxy in front of the API (the web app's server and any load balancer, as addresses or subnets); otherwise all visitors share the proxy's address and one person could block everyone. `true` is refused, since anyone could then forge their address.
 - The browser calls the API through the web app (`/api/v1/*` is forwarded to `API_URL`, see `apps/web/next.config.ts`), so the cookie belongs to the web app's own origin. The web app's `proxy.ts` sends visitors without a cookie from `/pro` and `/admin` to `/connexion`; the pages then ask the API who is signed in. The API decides access in every case.
+
+## Listings and locations (S3)
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `GET /communes` | public | The 13 communes, to choose one from a list (ADR-044) |
+| `GET /communes/locate?lat=&lng=` | public, not cached | The commune whose official boundary covers the point (`inside`); else the nearest within 50 m, for a GPS fix just outside Grand Lomé (`nearby`); else `null` |
+| `GET /categories?type=BUSINESS\|COMMUNITY` | public | Active categories of one kind of listing |
+
+A listing is created as a **draft** from `/pro/fiches/nouvelle`, in three ways:
+
+| Type | Position | Shown to the public |
+|---|---|---|
+| `FIXED`: "Je suis devant mon activité" | required: the phone's GPS position, taken on the spot, with its accuracy | exact point |
+| `HOME_BASED`: "Je travaille à domicile" | optional | never the exact point: about 550 m (ADR-046, `public_locations`) |
+| `MOBILE`: "Je me déplace" | none | the communes it serves |
+
+The commune found from the position is only proposed: the person confirms or changes it in the list (ADR-044). The API refuses a point more than 1 km from Grand Lomé, a category of the other kind of listing, and more than 20 drafts per account. Phone and description may wait: they are required at submission (ADR-045).
 
 ## Useful commands
 

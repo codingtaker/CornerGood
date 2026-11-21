@@ -98,7 +98,12 @@ export function AccountForm({ mode, next }: AccountFormProps) {
   }
 
   return (
-    <form ref={form} onSubmit={submit} className="flex flex-col gap-4" noValidate>
+    <form
+      ref={form}
+      onSubmit={submit}
+      className="flex flex-col gap-4"
+      noValidate
+    >
       {fields.map((field) => (
         <label key={field} className="flex flex-col gap-1">
           <span className="font-medium">{LABELS[field]}</span>
@@ -114,7 +119,11 @@ export function AccountForm({ mode, next }: AccountFormProps) {
                     : "text"
             }
             inputMode={
-              field === "phone" ? "tel" : field === "code" ? "numeric" : undefined
+              field === "phone"
+                ? "tel"
+                : field === "code"
+                  ? "numeric"
+                  : undefined
             }
             placeholder={
               field === "phone"
@@ -155,7 +164,10 @@ export function AccountForm({ mode, next }: AccountFormProps) {
         </p>
       )}
       {info && (
-        <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-green-900">
+        <p
+          role="status"
+          className="rounded-md bg-green-50 px-3 py-2 text-green-900"
+        >
           {info}
         </p>
       )}

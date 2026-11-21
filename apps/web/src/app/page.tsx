@@ -10,7 +10,10 @@ export default function HomePage() {
       </p>
       <p className="text-sm opacity-70">Plateforme en cours de construction.</p>
       <nav className="flex gap-4">
-        <Link href="/inscription" className="font-semibold text-accent underline">
+        <Link
+          href="/inscription"
+          className="font-semibold text-accent underline"
+        >
           Créer un compte pro
         </Link>
         <Link href="/pro" className="font-semibold underline">

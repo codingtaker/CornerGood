@@ -53,7 +53,9 @@ export function DeleteAccountForm() {
       </label>
       <label className="flex items-start gap-2">
         <input name="confirm" type="checkbox" className="mt-1" />
-        <span>Je comprends que la suppression de mon compte est définitive.</span>
+        <span>
+          Je comprends que la suppression de mon compte est définitive.
+        </span>
       </label>
       {message && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-red-800">
