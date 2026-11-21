@@ -260,6 +260,21 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
         );
     });
 
+    // Review of 2026-11-20, medium point: a refused sign-up costs no scrypt, so
+    // repeating it cannot exhaust the server. A full hash takes well over 100 ms.
+    it('refuses a taken number before hashing the password', async () => {
+      const durations: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const started = performance.now();
+        await http()
+          .post('/api/v1/auth/register')
+          .send({ ...professional, fullName: 'Autre Personne' })
+          .expect(409);
+        durations.push(performance.now() - started);
+      }
+      expect(Math.min(...durations)).toBeLessThan(100);
+    });
+
     it('reports every invalid field at once', async () => {
       await http()
         .post('/api/v1/auth/register')

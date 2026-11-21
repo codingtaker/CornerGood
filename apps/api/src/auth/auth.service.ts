@@ -12,8 +12,9 @@ export class AuthService {
 
   /** Public sign-up only ever creates PROFESSIONAL accounts (ADR-047). */
   async signUp(input: SignUpInput): Promise<AuthenticatedUser> {
-    const passwordHash = await hashPassword(input.password);
-
+    // Duplicates first: a refused sign-up must not cost a scrypt, or repeated
+    // sign-ups with a taken number would exhaust the server cheaply. The 409
+    // already says the number has an account, so timing reveals nothing more.
     const taken = await this.db
       .selectFrom('users')
       .select(['phone'])
@@ -26,6 +27,7 @@ export class AuthService {
       .executeTakeFirst();
     if (taken) throw this.alreadyUsed(taken.phone === input.phone);
 
+    const passwordHash = await hashPassword(input.password);
     try {
       const user = await this.db
         .insertInto('users')
