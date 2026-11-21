@@ -1,47 +1,15 @@
 import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
 import { Kysely } from 'kysely';
-import {
-  CurrentUser,
-  Roles,
-  RolesGuard,
-  SessionGuard,
-} from '../auth/auth.guard';
-import type { AuthenticatedUser } from '../auth/credentials';
+import { Roles, RolesGuard, SessionGuard } from '../auth/auth.guard';
 import { KYSELY } from '../database/database.module';
-import { Database, PublicationStatus } from '../database/database.types';
+import { Database } from '../database/database.types';
 
 /*
- * Entry points of the two protected spaces. Every route under /pro needs a
- * session; every route under /admin also needs the MODERATOR or ADMIN role.
- * The web app hides these pages too, but this is where access is decided.
+ * Entry point of the moderation space: every route under /admin needs a
+ * session and the MODERATOR or ADMIN role. The web app hides these pages
+ * too, but this is where access is decided. The professional space (/pro)
+ * lives in listings/listings.controller.ts.
  */
-
-@Controller('pro')
-@UseGuards(SessionGuard, RolesGuard)
-@Roles('PROFESSIONAL', 'MODERATOR', 'ADMIN')
-export class ProController {
-  constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
-
-  /** The listings the signed-in professional owns (none yet after sign-up). */
-  @Get('listings')
-  async listings(@CurrentUser() user: AuthenticatedUser): Promise<{
-    listings: { id: string; name: string; status: PublicationStatus }[];
-  }> {
-    const rows = await this.db
-      .selectFrom('establishments')
-      .select(['id', 'name', 'publication_status'])
-      .where('owner_id', '=', user.id)
-      .orderBy('created_at', 'desc')
-      .execute();
-    return {
-      listings: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        status: row.publication_status,
-      })),
-    };
-  }
-}
 
 @Controller('admin')
 @UseGuards(SessionGuard, RolesGuard)

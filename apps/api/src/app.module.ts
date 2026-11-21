@@ -4,8 +4,12 @@ import { AuthModule } from './auth/auth.module';
 import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
+import { ListingsController } from './listings/listings.controller';
+import { ListingsService } from './listings/listings.service';
 import { SmsModule } from './sms/sms.module';
-import { AdminController, ProController } from './spaces/spaces.controllers';
+import { AdminController } from './spaces/spaces.controllers';
+import { TerritoryController } from './territory/territory.controller';
+import { TerritoryService } from './territory/territory.service';
 
 @Module({
   imports: [
@@ -19,6 +23,12 @@ import { AdminController, ProController } from './spaces/spaces.controllers';
     SmsModule,
     AuthModule,
   ],
-  controllers: [HealthController, ProController, AdminController],
+  controllers: [
+    HealthController,
+    TerritoryController,
+    ListingsController,
+    AdminController,
+  ],
+  providers: [TerritoryService, ListingsService],
 })
 export class AppModule {}
