@@ -29,14 +29,14 @@ describe('readFirstAdminIdentity', () => {
   it('lists every problem at once', () => {
     const run = () =>
       readFirstAdminIdentity({
-        ADMIN_PHONE: '90000000',
+        ADMIN_PHONE: '9000000',
         ADMIN_EMAIL: 'not-an-email',
       });
     expect(run).toThrow(FirstAdminError);
     expect(run).toThrow(
       [
         'ADMIN_FULL_NAME must be 2 to 120 characters long',
-        'ADMIN_PHONE must be in international format, e.g. +22890000000',
+        'ADMIN_PHONE is not a valid number, e.g. 90 12 34 56 or +22890123456',
         'ADMIN_EMAIL is not a valid email address',
       ].join('\n'),
     );
@@ -67,10 +67,26 @@ describe('readRecoveryPhone', () => {
     expect(() => readRecoveryPhone({ ADMIN_PASSWORD: 'left-behind' })).toThrow(
       [
         'Remove ADMIN_PASSWORD from .env and from your shell: the password is typed at the prompt',
-        'ADMIN_PHONE must be in international format, e.g. +22890000000',
+        'ADMIN_PHONE is not a valid number, e.g. 90 12 34 56 or +22890123456',
       ].join('\n'),
     );
   });
+});
+
+// Review of 2026-11-20: the commands read numbers exactly like sign-up does.
+describe('phone numbers in the admin commands', () => {
+  it.each(['90 12 34 56', '90.12.34.56', '0022890123456', '+228 90 12 34 56'])(
+    'reads %s as +22890123456, as sign-up does',
+    (raw) => {
+      expect(
+        readFirstAdminIdentity({
+          ADMIN_FULL_NAME: 'Afi Kouma',
+          ADMIN_PHONE: raw,
+        }).phone,
+      ).toBe('+22890123456');
+      expect(readRecoveryPhone({ ADMIN_PHONE: raw })).toBe('+22890123456');
+    },
+  );
 });
 
 describe('checkTypedPassword', () => {

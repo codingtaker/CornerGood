@@ -14,9 +14,15 @@ import { runMigrations } from '../../src/database/migrator';
 import { APP_ROLE_GRANTS as GRANTS_0003 } from '../../src/database/migrations/0003_least_privilege_app_role';
 import { APP_ROLE_GRANTS as GRANTS_0004 } from '../../src/database/migrations/0004_auth_throttle';
 import { APP_ROLE_GRANTS as GRANTS_0005 } from '../../src/database/migrations/0005_otp_codes';
+import { APP_ROLE_GRANTS as GRANTS_0007 } from '../../src/database/migrations/0007_public_locations';
 
 /** Grants of the API role, migration by migration: add each new one here. */
-const APP_ROLE_GRANTS = { ...GRANTS_0003, ...GRANTS_0004, ...GRANTS_0005 };
+const APP_ROLE_GRANTS = {
+  ...GRANTS_0003,
+  ...GRANTS_0004,
+  ...GRANTS_0005,
+  ...GRANTS_0007,
+};
 import { seedReferenceData } from '../../src/database/seeder';
 import {
   assertDisposableConnectedDatabase,
@@ -368,6 +374,63 @@ describeWithDatabase('database schema', () => {
           })
           .execute(),
       ).rejects.toThrow(/home_point_stays_private/);
+    });
+
+    // ADR-046 on reading (migration 0007): public pages read public_locations.
+    it('never lets public_locations return the exact point of a home', async () => {
+      const home = await createDraft('Couture à domicile');
+      const shop = await createDraft('Boutique en vitrine');
+      const draft = await createDraft('Brouillon caché');
+      const exact = sql<string>`ST_SetSRID(ST_MakePoint(1.208713, 6.230142), 4326)::geography`;
+      const [homeLocation, shopLocation, draftLocation] = await Promise.all(
+        [
+          [home, 'HOME_BASED', 'APPROXIMATE'],
+          [shop, 'FIXED', 'PUBLIC'],
+          [draft, 'FIXED', 'PUBLIC'],
+        ].map(
+          async ([establishmentId, locationType, visibility]) =>
+            (
+              await db
+                .insertInto('locations')
+                .values({
+                  establishment_id: establishmentId,
+                  commune_id: communeId,
+                  location_type: locationType as 'HOME_BASED' | 'FIXED',
+                  visibility: visibility as 'APPROXIMATE' | 'PUBLIC',
+                  geom: exact,
+                  position_source: 'DEVICE_GPS',
+                })
+                .returning('id')
+                .executeTakeFirstOrThrow()
+            ).id,
+        ),
+      );
+      await db
+        .updateTable('establishments')
+        .set({
+          publication_status: 'PUBLISHED',
+          published_at: sql<Date>`now()`,
+          description: 'Une activité du quartier.',
+          phone: '+22890000002',
+        })
+        .where('id', 'in', [home, shop])
+        .execute();
+
+      const { rows } = await sql<{ id: string; shift_m: number }>`
+        SELECT p.id, ST_Distance(p.geom, l.geom) AS shift_m
+        FROM public_locations p JOIN locations l USING (id)
+        WHERE p.id IN (${homeLocation}, ${shopLocation}, ${draftLocation})
+      `.execute(db);
+      const shift = Object.fromEntries(
+        rows.map((row) => [row.id, row.shift_m]),
+      );
+
+      // The home is moved, but stays in its neighbourhood (half a 550 m cell).
+      expect(shift[homeLocation]).toBeGreaterThan(1);
+      expect(shift[homeLocation]).toBeLessThan(400);
+      // A shop window keeps its exact point; a draft does not appear at all.
+      expect(shift[shopLocation]).toBe(0);
+      expect(draftLocation in shift).toBe(false);
     });
 
     it('rejects a point without its provenance', async () => {
@@ -959,7 +1022,8 @@ describeWithDatabase('database schema', () => {
             WHERE has_table_privilege('cornergood_app', c.oid, p)
           ), '') AS privileges
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'spatial_ref_sys'
+        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'v')
+          AND c.relname NOT IN ('spatial_ref_sys', 'geography_columns', 'geometry_columns')
         ORDER BY c.relname
       `.execute(db);
 

@@ -243,6 +243,19 @@ export interface ReportsTable {
   resolved_at: Timestamp | null;
 }
 
+/** View: the only source of locations for public pages (ADR-046, 0007). */
+export interface PublicLocationsView {
+  id: string;
+  establishment_id: string;
+  commune_id: string;
+  location_type: LocationType;
+  visibility: LocationVisibility;
+  address_hint: string | null;
+  is_primary: boolean;
+  /** Snapped to about 550 m when the location is APPROXIMATE. */
+  geom: Geography | null;
+}
+
 export interface Database {
   regions: RegionsTable;
   prefectures: PrefecturesTable;
@@ -261,6 +274,7 @@ export interface Database {
   establishment_revisions: EstablishmentRevisionsTable;
   moderation_log: ModerationLogTable;
   reports: ReportsTable;
+  public_locations: PublicLocationsView;
   auth_throttle: AuthThrottleTable;
   otp_codes: OtpCodesTable;
 }

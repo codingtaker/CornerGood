@@ -86,7 +86,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | Command | Effect |
 |---|---|
 | `npm run lint` | Lint both applications |
-| `npm test` | Unit tests |
+| `npm test` | Unit tests: API (Jest) and web app (Vitest: `proxy.ts`, `lib/`, the sign-in and account-deletion forms) |
 | `npm run test:e2e` | API end-to-end tests (no database needed yet) |
 | `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped. The tests refuse to run unless the database name ends in `_test` and differs from `DATABASE_URL`. Skipped without `TEST_DATABASE_URL`, except in CI where it fails |
 | `npm run build` | Production build of both applications |
@@ -113,7 +113,7 @@ The tests connect as the owner, to rebuild the schema, and run the API itself as
 
 Public sign-up only creates professional accounts, and only an administrator can create another one (ADR-047). The first administrator is created once, from the command line, after `npm run db:migrate`:
 
-1. Set `ADMIN_FULL_NAME`, `ADMIN_PHONE` (international format, e.g. `+22890000000`) and optionally `ADMIN_EMAIL`, in `.env` or in your shell.
+1. Set `ADMIN_FULL_NAME`, `ADMIN_PHONE` (written as at sign-up: `90 12 34 56` or `+22890123456`) and optionally `ADMIN_EMAIL`, in `.env` or in your shell.
 2. Run `npm run admin:create` in an interactive terminal, and type the password twice when asked (12 characters or more). It is not shown on screen, and is stored only as a scrypt hash: it never goes into a file or the shell history.
 
 The command refuses to run when `ADMIN_PASSWORD` is set, when an administrator already exists, or when the phone or email belongs to another account.
@@ -134,6 +134,7 @@ The account is reactivated, gets the new password, and all its sessions are clos
 - Single-row business rules (location types, a reason for every rejection, one primary location, one pending revision) are enforced by constraints as well as by the API.
 - `moderation_log` is append-only: a trigger rejects any update or deletion, and the API role is only granted `SELECT` and `INSERT` on it.
 - Coordinates are `geography(Point, 4326)`; remember that `ST_MakePoint` takes the **longitude first**.
+- **Public pages read locations from the view `public_locations`, never from `locations`** (ADR-046, migration `0007`). The view only shows published listings and never the exact point of an `APPROXIMATE` location, such as a home: that point is snapped to a grid of about 550 m. The table keeps the exact point for the owner and the moderators.
 
 ## Rules
 
