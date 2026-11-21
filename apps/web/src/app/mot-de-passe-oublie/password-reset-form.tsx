@@ -6,8 +6,7 @@ import { requestSmsCode } from "@/lib/sms-code";
 
 type Field = "phone" | "code" | "password";
 
-const inputClass =
-  "rounded-md border border-foreground/30 px-3 py-2 text-base";
+const inputClass = "rounded-md border border-foreground/30 px-3 py-2 text-base";
 
 /** Step 1: the number receives a code. Step 2: code and new password. */
 export function PasswordResetForm() {
@@ -75,7 +74,10 @@ export function PasswordResetForm() {
         </p>
       )}
       {info && (
-        <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-green-900">
+        <p
+          role="status"
+          className="rounded-md bg-green-50 px-3 py-2 text-green-900"
+        >
           {info}
         </p>
       )}

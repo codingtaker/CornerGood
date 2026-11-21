@@ -31,7 +31,9 @@ describe("DeleteAccountForm", () => {
     });
   const submit = () =>
     fireEvent.click(
-      screen.getByRole("button", { name: "Supprimer définitivement mon compte" }),
+      screen.getByRole("button", {
+        name: "Supprimer définitivement mon compte",
+      }),
     );
 
   it("deletes nothing until the box is ticked", async () => {
@@ -52,7 +54,9 @@ describe("DeleteAccountForm", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     submit();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/compte-supprime"));
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith("/compte-supprime"),
+    );
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/v1/auth/me");
     expect(init.method).toBe("DELETE");

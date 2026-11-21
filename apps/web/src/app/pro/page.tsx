@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { STATUS_LABELS } from "@/lib/listings";
 import { ADMIN_ROLES, apiFetch, getCurrentUser } from "@/lib/session";
 import { SignOutButton } from "../sign-out-button";
 
@@ -30,17 +31,33 @@ export default async function ProPage() {
       </header>
       <p>Bonjour {user.fullName}.</p>
 
-      <section className="flex flex-col gap-2">
+      <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Mes fiches</h2>
+        <Link
+          href="/pro/fiches/nouvelle"
+          className="rounded-md bg-accent px-4 py-3 text-center font-semibold text-white"
+        >
+          Créer une fiche
+        </Link>
         {listings.length === 0 ? (
           <p className="opacity-80">
-            Vous n&apos;avez pas encore de fiche. La création de fiche arrive
-            bientôt.
+            Vous n&apos;avez pas encore de fiche. Le plus simple : placez-vous
+            devant votre activité et créez-la sur place.
           </p>
         ) : (
-          <ul className="list-disc pl-5">
+          <ul className="flex flex-col gap-2">
             {listings.map((listing) => (
-              <li key={listing.id}>{listing.name}</li>
+              <li key={listing.id}>
+                <Link
+                  href={`/pro/fiches/${listing.id}`}
+                  className="flex items-center justify-between gap-3 rounded-md border border-foreground/20 px-3 py-2"
+                >
+                  <span className="font-medium">{listing.name}</span>
+                  <span className="text-sm opacity-70">
+                    {STATUS_LABELS[listing.status] ?? listing.status}
+                  </span>
+                </Link>
+              </li>
             ))}
           </ul>
         )}
