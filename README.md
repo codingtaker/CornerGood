@@ -86,7 +86,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | Command | Effect |
 |---|---|
 | `npm run lint` | Lint both applications |
-| `npm test` | Unit tests |
+| `npm test` | Unit tests: API (Jest) and web app (Vitest: `proxy.ts`, `lib/`, the sign-in and account-deletion forms) |
 | `npm run test:e2e` | API end-to-end tests (no database needed yet) |
 | `npm run test:db` | Schema tests against a real database: set `TEST_DATABASE_URL` to a **dedicated, empty** database, because its `public` schema is wiped. The tests refuse to run unless the database name ends in `_test` and differs from `DATABASE_URL`. Skipped without `TEST_DATABASE_URL`, except in CI where it fails |
 | `npm run build` | Production build of both applications |
@@ -134,6 +134,7 @@ The account is reactivated, gets the new password, and all its sessions are clos
 - Single-row business rules (location types, a reason for every rejection, one primary location, one pending revision) are enforced by constraints as well as by the API.
 - `moderation_log` is append-only: a trigger rejects any update or deletion, and the API role is only granted `SELECT` and `INSERT` on it.
 - Coordinates are `geography(Point, 4326)`; remember that `ST_MakePoint` takes the **longitude first**.
+- **Public pages read locations from the view `public_locations`, never from `locations`** (ADR-046, migration `0007`). The view only shows published listings and never the exact point of an `APPROXIMATE` location, such as a home: that point is snapped to a grid of about 550 m. The table keeps the exact point for the owner and the moderators.
 
 ## Rules
 
