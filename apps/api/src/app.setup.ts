@@ -26,9 +26,7 @@ export function configureApp(app: INestApplication): void {
   app.use(sameOriginJson([webOrigin]));
   app.setGlobalPrefix('api/v1');
   app.enableShutdownHooks();
-  app.enableCors({
-    origin: webOrigin,
-    // Sessions will travel in a cookie (ADR-021).
-    credentials: true,
-  });
+  // No CORS: browsers reach the API through the web app's own origin
+  // (/api/v1 rewrite), never cross-origin. Without CORS headers, a page of
+  // another origin cannot read any answer, even from a GET.
 }

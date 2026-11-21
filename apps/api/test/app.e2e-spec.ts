@@ -40,6 +40,18 @@ describe('API (e2e)', () => {
     return request(app.getHttpServer()).get('/api/v1/unknown').expect(404);
   });
 
+  // Browsers use the web app's origin (/api/v1 rewrite): no CORS at all, so a
+  // page of another origin cannot read an answer, not even with credentials.
+  it('sends no CORS headers, even to the web app origin', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/health')
+      .set('Origin', process.env.WEB_ORIGIN as string);
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+    expect(
+      response.headers['access-control-allow-credentials'],
+    ).toBeUndefined();
+  });
+
   // Code review of 2026-11-20, medium point: security headers.
   it.each([
     ['an answer', '/api/v1/health'],
