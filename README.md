@@ -71,7 +71,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
   | Address, sign-up | 10 attempts in 1 h | blocked 5, 10, 20… minutes, up to 1 h |
 
   The address limits are generous because mobile operators put many customers behind one address. IPv6 addresses count by `/64` network.
-- **Requests from another site** (`apps/api/src/security/same-origin-json.ts`). Every `POST`, `PUT`, `PATCH` or `DELETE` must send its body as JSON (`415` otherwise: an HTML form cannot), and a browser request must come from `WEB_ORIGIN` (`403` when its `Origin` is another site or `Sec-Fetch-Site` says `cross-site`). This stops a third-party page from signing a visitor into another account (login CSRF) or acting in their name. Requests without these headers do not come from a browser and carry no visitor's cookies.
+- **Requests from another site** (`apps/api/src/security/same-origin-json.ts`). Every `POST`, `PUT`, `PATCH` or `DELETE` must send its body as JSON (`415` otherwise: an HTML form cannot; the photo upload is the one exception and requires the `Origin`), and a browser request must come from `WEB_ORIGIN` (`403` when its `Origin` is another site or `Sec-Fetch-Site` says `cross-site`). This stops a third-party page from signing a visitor into another account (login CSRF) or acting in their name. Requests without these headers do not come from a browser and carry no visitor's cookies.
 - **Security headers.** The API (`apps/api/src/security/security-headers.ts`) sends `nosniff`, `X-Frame-Options: DENY`, a CSP that allows nothing (`default-src 'none'; frame-ancestors 'none'`), `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, plus HSTS in production, and no `X-Powered-By`. The web app (`apps/web/src/lib/security-headers.ts`, applied in `next.config.ts`) sends a CSP with `frame-ancestors 'none'` (no page can be shown in another site's frame), sources limited to its own origin, `nosniff`, `Permissions-Policy` (position and camera for this site only), and HSTS and `upgrade-insecure-requests` in production. Its CSP keeps `'unsafe-inline'` for scripts, the Next.js variant without nonces, so pages stay static and cacheable; nonces are possible later at the cost of rendering every page on each request. The only other host is the map tile server (`NEXT_PUBLIC_MAP_TILES_URL`), in `img-src` and `connect-src`.
 - **Codes by SMS** (table `otp_codes`). `POST /auth/otp` sends a 6-digit code to a Togolese number (`+228` only), for one of two purposes:
   - `LOGIN_UNLOCK`: a number blocked after too many failures signs in with its password **and** the code, without waiting; whoever only knows the number can no longer lock its owner out;
@@ -101,6 +101,21 @@ A listing is created as a **draft** from `/pro/fiches/nouvelle`, in three ways:
 A fixed place is always checked on a map before it is saved (ADR-041): MapLibre, loaded only there, with the tiles of `NEXT_PUBLIC_MAP_TILES_URL` (OpenStreetMap's by default: fine for a prototype, not for heavy traffic) and the commune borders. The pin can be dragged, or placed without any GPS; it is then saved as `MANUAL_PIN`, without an accuracy. The tile server sees the area displayed, so no map is shown for a home.
 
 The commune found from the position is only proposed: the person confirms or changes it in the list (ADR-044). The API refuses a point more than 1 km from Grand Lomé, a category of the other kind of listing, and more than 20 drafts per account. Phone and description may wait: they are required at submission (ADR-045).
+
+## Photos (S4)
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `POST /pro/listings/:id/media` | owner | Adds one photo (`multipart/form-data`, field `file`): JPEG, PNG or WebP, 5 MB and 6 photos per listing at most (ADR-040) |
+| `GET /pro/listings/:id/media`, `GET …/media/:mediaId` | owner | The photos and their status; one photo, never cached |
+| `DELETE /pro/listings/:id/media/:mediaId` | owner | Deletes a photo and its file; the next one becomes the cover |
+
+- **No position leaves with a photo** (ADR-041). The phone draws the photo again (1280 px, WebP), so its EXIF is never sent; the server decodes and encodes it again with `sharp`, which keeps the pixels only, and checks the result before storing it.
+- The type is read from the content, not from the name. An image that decodes to more than 25 million pixels is refused.
+- Every photo starts `PENDING`; **no public route serves photos yet**. Photos change only while the listing is a draft or rejected (`409` otherwise).
+- Files are kept behind the `MediaStorage` interface (ADR-029): the folder `MEDIA_DIR` in the prototype (`var/media`, ignored by Git), to back up with the database.
+- 20 uploads per account and per hour, then `429`. Deleting an account deletes the photos of all its listings, files included.
+- This route is the only one that accepts something else than JSON; it then requires the `Origin` of the web app.
 
 ## Useful commands
 

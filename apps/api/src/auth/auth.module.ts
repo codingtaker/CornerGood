@@ -22,6 +22,6 @@ import { ThrottleService } from './throttle.service';
     SessionGuard,
     RolesGuard,
   ],
-  exports: [SessionService, SessionGuard, RolesGuard],
+  exports: [SessionService, ThrottleService, SessionGuard, RolesGuard],
 })
 export class AuthModule {}

@@ -15,10 +15,29 @@ import type { NextFunction, Request, Response } from 'express';
  *    these headers do not come from a browser (curl, server to server), so no
  *    visitor's cookies can be abused through them.
  *
+ * One exception to rule 1: the photo upload is multipart. Since an HTML form
+ * can send that too, its Origin is then required, not only checked.
+ *
  * Reads (GET, HEAD, OPTIONS) change nothing and are left alone.
  */
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** POST /api/v1/pro/listings/:id/media, and nothing else. */
+const UPLOAD_PATH = /^\/api\/v1\/pro\/listings\/[^/]+\/media\/?$/;
+
+function isPhotoUpload(request: Request): boolean {
+  const mediaType = (request.headers['content-type'] ?? '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  return (
+    request.method === 'POST' &&
+    mediaType === 'multipart/form-data' &&
+    UPLOAD_PATH.test(request.path) &&
+    request.headers.origin !== undefined
+  );
+}
 
 export function hasBody(request: Request): boolean {
   const length = request.headers['content-length'];
@@ -51,7 +70,11 @@ export function sameOriginJson(allowedOrigins: string[]) {
       return;
     }
 
-    if (hasBody(request) && !isJson(request.headers['content-type'])) {
+    if (
+      hasBody(request) &&
+      !isJson(request.headers['content-type']) &&
+      !isPhotoUpload(request)
+    ) {
       response.status(415).json({
         message: 'Le corps de la requête doit être du JSON.',
       });

@@ -3,6 +3,7 @@ import { Kysely, sql } from 'kysely';
 import { lockAdminAccounts } from '../admin/first-admin';
 import { KYSELY } from '../database/database.module';
 import type { Database } from '../database/database.types';
+import { MediaService } from '../media/media.service';
 import { verifyPassword } from './password-hasher';
 
 /*
@@ -14,7 +15,8 @@ import { verifyPassword } from './password-hasher';
  *   inactive, deleted_at set;
  * - sessions, SMS codes and the sign-in counters of the number are deleted;
  * - the account's listings are archived, each with a line in the moderation
- *   log, so they leave the public site and the trace stays.
+ *   log, so they leave the public site and the trace stays;
+ * - the photos of all its listings are deleted, files included.
  */
 
 export const DELETED_NAME = 'Compte supprimé';
@@ -25,7 +27,10 @@ export type DeletionOutcome = 'DELETED' | 'WRONG_PASSWORD' | 'LAST_ADMIN';
 
 @Injectable()
 export class AccountDeletionService {
-  constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
+  constructor(
+    @Inject(KYSELY) private readonly db: Kysely<Database>,
+    private readonly media: MediaService,
+  ) {}
 
   async deleteAccount(
     userId: string,
@@ -43,7 +48,8 @@ export class AccountDeletionService {
       return 'WRONG_PASSWORD';
     }
 
-    return this.db.transaction().execute(async (trx) => {
+    let photoKeys: string[] = [];
+    const outcome = await this.db.transaction().execute(async (trx) => {
       if (user.role === 'ADMIN') {
         // Same lock as admin:create and admin:recover.
         await lockAdminAccounts(trx);
@@ -55,7 +61,7 @@ export class AccountDeletionService {
           .where('id', '!=', userId)
           .executeTakeFirst();
         // Without an administrator, nobody could moderate any more.
-        if (!otherAdmin) return 'LAST_ADMIN';
+        if (!otherAdmin) return 'LAST_ADMIN' as const;
       }
 
       // Status read before the change, for the log's from_status.
@@ -91,6 +97,20 @@ export class AccountDeletionService {
           .execute();
       }
 
+      // Locked first, like an upload does: one that is still running adds its
+      // photo before this, or finds an archived listing and gives up.
+      const photos = await trx
+        .deleteFrom('media')
+        .where('establishment_id', 'in', (eb) =>
+          eb
+            .selectFrom('establishments')
+            .select('id')
+            .where('owner_id', '=', userId),
+        )
+        .returning('storage_key')
+        .execute();
+      photoKeys = photos.map((photo) => photo.storage_key);
+
       await trx.deleteFrom('sessions').where('user_id', '=', userId).execute();
       await trx.deleteFrom('otp_codes').where('user_id', '=', userId).execute();
       if (user.phone) {
@@ -116,7 +136,10 @@ export class AccountDeletionService {
         })
         .where('id', '=', userId)
         .execute();
-      return 'DELETED';
+      return 'DELETED' as const;
     });
+    // Only once the rows are gone for good.
+    await this.media.deleteFiles(photoKeys);
+    return outcome;
   }
 }

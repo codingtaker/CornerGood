@@ -1,7 +1,11 @@
 import type { Request, Response } from 'express';
 import { isJson, sameOriginJson } from './same-origin-json';
 
-function run(method: string, headers: Record<string, string>) {
+function run(
+  method: string,
+  headers: Record<string, string>,
+  path = '/api/v1/auth/login',
+) {
   const guard = sameOriginJson(['http://localhost:3000']);
   const response = {
     statusCode: 200,
@@ -17,7 +21,7 @@ function run(method: string, headers: Record<string, string>) {
   };
   const next = jest.fn();
   guard(
-    { method, headers } as unknown as Request,
+    { method, headers, path } as unknown as Request,
     response as unknown as Response,
     next,
   );
@@ -65,6 +69,34 @@ describe('sameOriginJson', () => {
 
   it('accepts requests that do not come from a browser', () => {
     expect(run('POST', json).status).toBe('next');
+  });
+
+  describe('photo upload', () => {
+    const path = '/api/v1/pro/listings/3f2c/media';
+    const multipart = {
+      'content-type': 'multipart/form-data; boundary=x',
+      'content-length': '20',
+    };
+    const origin = 'http://localhost:3000';
+
+    it('lets the web app send a photo', () => {
+      expect(run('POST', { ...multipart, origin }, path).status).toBe('next');
+    });
+
+    it('requires the Origin, and refuses another site', () => {
+      expect(run('POST', multipart, path).status).toBe(415);
+      expect(
+        run('POST', { ...multipart, origin: 'https://evil.example' }, path)
+          .status,
+      ).toBe(403);
+    });
+
+    it.each(['/api/v1/auth/login', `${path}/x`, '/api/v1/pro/listings'])(
+      'keeps %s JSON only',
+      (other) => {
+        expect(run('POST', { ...multipart, origin }, other).status).toBe(415);
+      },
+    );
   });
 
   it('leaves reads alone', () => {

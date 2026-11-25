@@ -8,6 +8,9 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# Photos stored by the API (MEDIA_DIR)
+/var/
+
 # Environment files: secrets must never reach the public repository
 .env
 .env.*
