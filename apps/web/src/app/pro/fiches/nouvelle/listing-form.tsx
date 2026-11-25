@@ -325,7 +325,7 @@ export function ListingForm({ communes, categories }: ListingFormProps) {
       </div>
       <p className="text-sm opacity-70">
         Le téléphone et la description pourront être complétés plus tard : ils
-        seront demandés avant l&apos;envoi en modération.
+        seront demandés avant l&apos;envoi pour validation.
       </p>
 
       {message && (

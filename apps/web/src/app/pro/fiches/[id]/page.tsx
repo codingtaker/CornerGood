@@ -4,10 +4,12 @@ import { notFound, redirect } from "next/navigation";
 import {
   LOCATION_LABELS,
   STATUS_LABELS,
+  type Category,
   type OwnListing,
   type OwnPhoto,
 } from "@/lib/listings";
 import { apiFetch, getCurrentUser } from "@/lib/session";
+import { DetailsForm } from "./details-form";
 import { PhotoSection } from "./photo-section";
 
 export const metadata: Metadata = { title: "Ma fiche · CornerGood" };
@@ -38,6 +40,13 @@ export default async function OwnListingPage({
   const location = listing.location;
   const editable = listing.status === "DRAFT" || listing.status === "REJECTED";
 
+  const categoriesResponse = editable
+    ? await apiFetch(`/categories?type=${listing.entityType}`)
+    : null;
+  const { categories } = categoriesResponse?.ok
+    ? ((await categoriesResponse.json()) as { categories: Category[] })
+    : { categories: [] };
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 py-8">
       <div>
@@ -47,6 +56,16 @@ export default async function OwnListingPage({
         <h1 className="text-2xl font-bold">{listing.name}</h1>
         <p className="opacity-80">{listing.category.name}</p>
       </div>
+
+      {listing.status === "PENDING" && (
+        <p
+          role="status"
+          className="rounded-md bg-green-50 px-3 py-2 text-green-900"
+        >
+          Votre fiche est envoyée. Elle sera publiée une fois vérifiée ; vous
+          verrez la décision ici.
+        </p>
+      )}
 
       {location && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
@@ -95,11 +114,17 @@ export default async function OwnListingPage({
         <p role="alert">Les photos sont indisponibles pour le moment.</p>
       )}
 
-      {listing.status === "DRAFT" && (
-        <p className="rounded-md bg-foreground/5 px-3 py-2 text-sm">
-          Brouillon enregistré. Vous pourrez le compléter puis l&apos;envoyer en
-          modération.
-        </p>
+      {editable ? (
+        <DetailsForm listing={listing} categories={categories} />
+      ) : (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Informations</h2>
+          {listing.description && (
+            <p className="whitespace-pre-line">{listing.description}</p>
+          )}
+          {listing.phone && <p>Téléphone : {listing.phone}</p>}
+          {listing.whatsapp && <p>WhatsApp : {listing.whatsapp}</p>}
+        </section>
       )}
       <Link href="/pro" className="text-accent underline">
         Retour à mon espace pro

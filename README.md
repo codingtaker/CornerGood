@@ -57,6 +57,8 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `DELETE /auth/me` | session + password | Deletes the account: personal data erased (see below) |
 | `GET /pro/listings`, `GET /pro/listings/:id` | session | The professional's own listings; the exact point is shown to the owner only (404 for anyone else) |
 | `POST /pro/listings` | session | Creates a draft listing with its location (see *Listings* below) |
+| `PATCH /pro/listings/:id` | owner | Replaces name, category, description, phone and WhatsApp of a draft; a rejected listing becomes a draft again (`409` in any other status) |
+| `POST /pro/listings/:id/submit` | owner | `DRAFT` → `PENDING` (see *Submission* below) |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
 
 - Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it. Signing in again on a device closes the session its cookie held, and an account keeps at most 10 open sessions (the oldest are closed first). Every hour, each API instance deletes expired sessions, stale sign-in counters and SMS codes expired for a day (`MaintenanceService`).
@@ -100,7 +102,11 @@ A listing is created as a **draft** from `/pro/fiches/nouvelle`, in three ways:
 
 A fixed place is always checked on a map before it is saved (ADR-041): MapLibre, loaded only there, with the tiles of `NEXT_PUBLIC_MAP_TILES_URL` (OpenStreetMap's by default: fine for a prototype, not for heavy traffic) and the commune borders. The pin can be dragged, or placed without any GPS; it is then saved as `MANUAL_PIN`, without an accuracy. The tile server sees the area displayed, so no map is shown for a home.
 
-The commune found from the position is only proposed: the person confirms or changes it in the list (ADR-044). The API refuses a point more than 1 km from Grand Lomé, a category of the other kind of listing, and more than 20 drafts per account. Phone and description may wait: they are required at submission (ADR-045).
+The commune found from the position is only proposed: the person confirms or changes it in the list (ADR-044). The API refuses a point more than 1 km from Grand Lomé, a category of the other kind of listing, and more than 20 unpublished listings per account. Phone and description may wait: they are required at submission (ADR-045).
+
+## Submission (S4)
+
+`POST /pro/listings/:id/submit` first checks the listing and answers `422 SUBMISSION_INCOMPLETE` with one message per missing `field`: a description; for an activity, a phone **or** WhatsApp number (a community place may have none, ADR-045); a usable location; a category still active. The change to `PENDING` and the `SUBMIT` line of the log are one transaction, under a lock: a double tap submits once. Under review, neither the listing nor its photos can change. The page `/pro/fiches/:id` saves what is on the screen before it sends it.
 
 ## Photos (S4)
 
