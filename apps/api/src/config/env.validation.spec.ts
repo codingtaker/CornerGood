@@ -17,6 +17,7 @@ describe('validateEnvironment', () => {
       TRUST_PROXY: 'loopback',
       OTP_SECRET: 'a-secret-of-at-least-32-characters!',
       SMS_PROVIDER: 'console',
+      MEDIA_DIR: '../../var/media',
     });
   });
 

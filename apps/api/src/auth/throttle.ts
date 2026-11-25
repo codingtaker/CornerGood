@@ -29,6 +29,8 @@ export interface ThrottlePolicies {
   otpIp: ThrottlePolicy;
   /** Wrong codes per address, on top of the 5 tries of each code. */
   otpFailureIp: ThrottlePolicy;
+  /** Photo uploads per account: each one costs image processing. */
+  mediaUser: ThrottlePolicy;
 }
 
 export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
@@ -69,6 +71,12 @@ export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
     windowSeconds: 3600,
     threshold: 20,
     baseBlockSeconds: 300,
+    maxBlockSeconds: 3600,
+  },
+  mediaUser: {
+    windowSeconds: 3600,
+    threshold: 20,
+    baseBlockSeconds: 600,
     maxBlockSeconds: 3600,
   },
 };

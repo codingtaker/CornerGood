@@ -5,8 +5,10 @@ import {
   LOCATION_LABELS,
   STATUS_LABELS,
   type OwnListing,
+  type OwnPhoto,
 } from "@/lib/listings";
 import { apiFetch, getCurrentUser } from "@/lib/session";
+import { PhotoSection } from "./photo-section";
 
 export const metadata: Metadata = { title: "Ma fiche · CornerGood" };
 
@@ -29,7 +31,12 @@ export default async function OwnListingPage({
     );
   }
   const { listing } = (await response.json()) as { listing: OwnListing };
+  const photosResponse = await apiFetch(`/pro/listings/${listing.id}/media`);
+  const photos = photosResponse.ok
+    ? ((await photosResponse.json()) as { photos: OwnPhoto[] }).photos
+    : null;
   const location = listing.location;
+  const editable = listing.status === "DRAFT" || listing.status === "REJECTED";
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 py-8">
@@ -77,10 +84,23 @@ export default async function OwnListingPage({
         </dl>
       )}
 
-      <p className="rounded-md bg-foreground/5 px-3 py-2 text-sm">
-        Brouillon enregistré. Vous pourrez le compléter (photos, horaires) puis
-        l&apos;envoyer en modération.
-      </p>
+      {photos ? (
+        <PhotoSection
+          listingId={listing.id}
+          initialPhotos={photos}
+          editable={editable}
+          locationType={location?.type ?? null}
+        />
+      ) : (
+        <p role="alert">Les photos sont indisponibles pour le moment.</p>
+      )}
+
+      {listing.status === "DRAFT" && (
+        <p className="rounded-md bg-foreground/5 px-3 py-2 text-sm">
+          Brouillon enregistré. Vous pourrez le compléter puis l&apos;envoyer en
+          modération.
+        </p>
+      )}
       <Link href="/pro" className="text-accent underline">
         Retour à mon espace pro
       </Link>

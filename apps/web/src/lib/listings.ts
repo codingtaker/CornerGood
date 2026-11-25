@@ -37,6 +37,21 @@ export interface OwnListing {
   } | null;
 }
 
+export interface OwnPhoto {
+  id: string;
+  status: string;
+  isCover: boolean;
+}
+
+/** Photos one listing may have (ADR-040), as in the API. */
+export const MAX_PHOTOS = 6;
+
+export const PHOTO_STATUS_LABELS: Record<string, string> = {
+  PENDING: "En attente de validation",
+  APPROVED: "Validée",
+  REJECTED: "Refusée",
+};
+
 export const LOCATION_LABELS: Record<LocationType, string> = {
   FIXED: "Lieu fixe (boutique, atelier, kiosque…)",
   HOME_BASED: "À domicile",

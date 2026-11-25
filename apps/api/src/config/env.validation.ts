@@ -15,6 +15,8 @@ export interface AppEnvironment {
   OTP_SECRET: string;
   /** Who sends the SMS. "console" (development only) writes them in the logs. */
   SMS_PROVIDER: SmsProviderName;
+  /** Folder of the photos (ADR-029), never served as is. */
+  MEDIA_DIR: string;
 }
 
 /** Add a provider here and in sms/sms.module.ts when one is chosen. */
@@ -81,6 +83,13 @@ export function validateEnvironment(
     );
   }
 
+  // From apps/api, where the API runs: the git-ignored folder of the repository.
+  const mediaDir =
+    typeof rawEnvironment.MEDIA_DIR === 'string' &&
+    rawEnvironment.MEDIA_DIR.trim() !== ''
+      ? rawEnvironment.MEDIA_DIR.trim()
+      : '../../var/media';
+
   if (errors.length > 0) {
     throw new Error(`Invalid environment:\n- ${errors.join('\n- ')}`);
   }
@@ -93,6 +102,7 @@ export function validateEnvironment(
     TRUST_PROXY: trustProxy,
     OTP_SECRET: otpSecret,
     SMS_PROVIDER: smsProvider as SmsProviderName,
+    MEDIA_DIR: mediaDir,
   };
 }
 
