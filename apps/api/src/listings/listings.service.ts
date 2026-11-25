@@ -4,8 +4,9 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { Kysely, sql } from 'kysely';
+import { Kysely, sql, Transaction } from 'kysely';
 import { randomBytes } from 'node:crypto';
 import { KYSELY } from '../database/database.module';
 import type {
@@ -16,9 +17,13 @@ import type {
   PublicationStatus,
 } from '../database/database.types';
 import { TerritoryService } from '../territory/territory.service';
-import type { DraftListingInput } from './listing-input';
+import type { DraftListingInput, ListingDetailsInput } from './listing-input';
+import { missingForSubmission } from './submission';
 
-/** Drafts one account may keep: enough for real use, not for flooding. */
+/**
+ * Unpublished listings one account may have: enough for real use, not for
+ * flooding. Those awaiting validation count, or the queue could be flooded.
+ */
 export const MAX_DRAFTS_PER_USER = 20;
 
 /** A home is never public (ADR-046); a mobile activity has no point. */
@@ -104,22 +109,7 @@ export class ListingsService {
   ): Promise<OwnListing> {
     const { location } = input;
 
-    const category = await this.db
-      .selectFrom('categories')
-      .select(['id', 'applicable_to'])
-      .where('id', '=', input.categoryId)
-      .where('is_active', '=', true)
-      .executeTakeFirst();
-    if (
-      !category ||
-      (category.applicable_to !== null &&
-        category.applicable_to !== input.entityType)
-    ) {
-      throw badField(
-        'categoryId',
-        "Cette catégorie n'existe pas pour ce type de fiche.",
-      );
-    }
+    await this.checkCategory(this.db, input.categoryId, input.entityType);
 
     const communeIds = [location.communeId, ...location.servedCommuneIds];
     const known = await this.db
@@ -145,11 +135,11 @@ export class ListingsService {
       .selectFrom('establishments')
       .select((eb) => eb.fn.countAll<string>().as('drafts'))
       .where('owner_id', '=', userId)
-      .where('publication_status', '=', 'DRAFT')
+      .where('publication_status', 'in', ['DRAFT', 'PENDING', 'REJECTED'])
       .executeTakeFirstOrThrow();
     if (Number(drafts) >= MAX_DRAFTS_PER_USER) {
       throw new ConflictException({
-        message: `Vous avez déjà ${MAX_DRAFTS_PER_USER} brouillons : terminez ou supprimez-en un avant d'en créer un autre.`,
+        message: `Vous avez déjà ${MAX_DRAFTS_PER_USER} fiches non publiées : terminez-les avant d'en créer une autre.`,
       });
     }
 
@@ -220,6 +210,183 @@ export class ListingsService {
     });
 
     return this.getOwn(userId, id);
+  }
+
+  /**
+   * Replaces the details of a draft. A rejected listing becomes a draft again
+   * (ADR-009 cycle), which the log records.
+   */
+  async updateDetails(
+    userId: string,
+    id: string,
+    input: ListingDetailsInput,
+  ): Promise<OwnListing> {
+    await this.db.transaction().execute(async (trx) => {
+      const listing = await this.lockOwn(trx, userId, id);
+      if (listing.status !== 'DRAFT' && listing.status !== 'REJECTED') {
+        throw new ConflictException({
+          message:
+            'Cette fiche ne peut pas être modifiée dans son état actuel.',
+        });
+      }
+      await this.checkCategory(trx, input.categoryId, listing.entityType);
+      await trx
+        .updateTable('establishments')
+        .set({
+          category_id: input.categoryId,
+          name: input.name,
+          description: input.description,
+          phone: input.phone,
+          whatsapp: input.whatsapp,
+          publication_status: 'DRAFT',
+          // Never published yet, so no public address depends on it.
+          ...(input.name === listing.name
+            ? {}
+            : { slug: listingSlug(input.name) }),
+        })
+        .where('id', '=', id)
+        .execute();
+      if (listing.status === 'REJECTED') {
+        await trx
+          .insertInto('moderation_log')
+          .values({
+            establishment_id: id,
+            actor_id: userId,
+            action: 'EDIT',
+            from_status: 'REJECTED',
+            to_status: 'DRAFT',
+          })
+          .execute();
+      }
+    });
+    return this.getOwn(userId, id);
+  }
+
+  /**
+   * DRAFT → PENDING, with its line in the log, in one transaction. The row
+   * lock makes a double tap submit once: the second one finds it PENDING.
+   */
+  async submit(userId: string, id: string): Promise<OwnListing> {
+    await this.db.transaction().execute(async (trx) => {
+      const listing = await this.lockOwn(trx, userId, id);
+      if (listing.status !== 'DRAFT') {
+        throw new ConflictException({
+          message:
+            listing.status === 'PENDING'
+              ? 'Cette fiche est déjà en attente de validation.'
+              : listing.status === 'REJECTED'
+                ? 'Corrigez la fiche avant de la renvoyer.'
+                : 'Cette fiche ne peut pas être envoyée dans son état actuel.',
+        });
+      }
+
+      const category = await trx
+        .selectFrom('categories')
+        .select('is_active')
+        .where('id', '=', listing.categoryId)
+        .executeTakeFirst();
+      const location = await trx
+        .selectFrom('locations')
+        .select((eb) => [
+          'location_type',
+          sql<boolean>`geom IS NOT NULL`.as('has_point'),
+          eb
+            .selectFrom('location_served_communes')
+            .select((inner) => inner.fn.countAll<string>().as('count'))
+            .whereRef(
+              'location_served_communes.location_id',
+              '=',
+              'locations.id',
+            )
+            .as('served'),
+        ])
+        .where('establishment_id', '=', id)
+        .where('is_primary', '=', true)
+        .executeTakeFirst();
+
+      const missing = missingForSubmission({
+        ...listing,
+        categoryActive: category?.is_active ?? false,
+        location: location
+          ? {
+              type: location.location_type,
+              hasPoint: location.has_point,
+              servedCommunes: Number(location.served),
+            }
+          : null,
+      });
+      if (Object.keys(missing).length > 0) {
+        throw new UnprocessableEntityException({
+          code: 'SUBMISSION_INCOMPLETE',
+          message: "Complétez la fiche avant de l'envoyer.",
+          fields: missing,
+        });
+      }
+
+      await trx
+        .updateTable('establishments')
+        .set({ publication_status: 'PENDING' })
+        .where('id', '=', id)
+        .execute();
+      await trx
+        .insertInto('moderation_log')
+        .values({
+          establishment_id: id,
+          actor_id: userId,
+          action: 'SUBMIT',
+          from_status: 'DRAFT',
+          to_status: 'PENDING',
+        })
+        .execute();
+    });
+    return this.getOwn(userId, id);
+  }
+
+  private async lockOwn(
+    trx: Transaction<Database>,
+    userId: string,
+    id: string,
+  ) {
+    const listing = await trx
+      .selectFrom('establishments')
+      .select([
+        'name',
+        'publication_status as status',
+        'entity_type as entityType',
+        'category_id as categoryId',
+        'description',
+        'phone',
+        'whatsapp',
+      ])
+      .where('id', '=', id)
+      .where('owner_id', '=', userId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!listing)
+      throw new NotFoundException({ message: 'Fiche introuvable.' });
+    return listing;
+  }
+
+  private async checkCategory(
+    db: Kysely<Database>,
+    categoryId: string,
+    entityType: EntityType,
+  ): Promise<void> {
+    const category = await db
+      .selectFrom('categories')
+      .select('applicable_to')
+      .where('id', '=', categoryId)
+      .where('is_active', '=', true)
+      .executeTakeFirst();
+    if (
+      !category ||
+      (category.applicable_to !== null && category.applicable_to !== entityType)
+    ) {
+      throw badField(
+        'categoryId',
+        "Cette catégorie n'existe pas pour ce type de fiche.",
+      );
+    }
   }
 
   /** One listing of its owner, exact point included; 404 for anyone else. */

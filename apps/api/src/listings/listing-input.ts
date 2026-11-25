@@ -50,13 +50,16 @@ export interface DraftLocationInput {
   servedCommuneIds: string[];
 }
 
-export interface DraftListingInput {
-  entityType: EntityType;
+export interface ListingDetailsInput {
   categoryId: string;
   name: string;
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+}
+
+export interface DraftListingInput extends ListingDetailsInput {
+  entityType: EntityType;
   location: DraftLocationInput;
 }
 
@@ -72,15 +75,11 @@ function optionalText(value: unknown): string | null {
     : null;
 }
 
-export function readDraftListing(body: unknown): DraftListingInput {
-  const raw = record(body);
-  const problems: Record<string, string> = {};
-
-  const entityType = ENTITY_TYPES.find((value) => value === raw.entityType);
-  if (!entityType) {
-    problems.entityType = 'Choisissez une activité ou un lieu communautaire.';
-  }
-
+/** What the listing is, shared by its creation and its later changes. */
+function readDetails(
+  raw: Record<string, unknown>,
+  problems: Record<string, string>,
+): ListingDetailsInput {
   const categoryId =
     typeof raw.categoryId === 'string' && UUID.test(raw.categoryId)
       ? raw.categoryId
@@ -105,6 +104,33 @@ export function readDraftListing(body: unknown): DraftListingInput {
   };
   const phone = readOptionalPhone('phone');
   const whatsapp = readOptionalPhone('whatsapp');
+  return {
+    categoryId: categoryId as string,
+    name,
+    description,
+    phone,
+    whatsapp,
+  };
+}
+
+/** The whole set of details: a field left empty is erased. */
+export function readListingDetails(body: unknown): ListingDetailsInput {
+  const problems: Record<string, string> = {};
+  const details = readDetails(record(body), problems);
+  if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
+  return details;
+}
+
+export function readDraftListing(body: unknown): DraftListingInput {
+  const raw = record(body);
+  const problems: Record<string, string> = {};
+
+  const entityType = ENTITY_TYPES.find((value) => value === raw.entityType);
+  if (!entityType) {
+    problems.entityType = 'Choisissez une activité ou un lieu communautaire.';
+  }
+
+  const details = readDetails(raw, problems);
 
   const location = record(raw.location);
   const type = LOCATION_TYPES.find((value) => value === location.type);
@@ -196,11 +222,7 @@ export function readDraftListing(body: unknown): DraftListingInput {
   if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
   return {
     entityType: entityType as EntityType,
-    categoryId: categoryId as string,
-    name,
-    description,
-    phone,
-    whatsapp,
+    ...details,
     location: {
       type: type as LocationType,
       communeId: communeId as string,

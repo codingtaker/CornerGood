@@ -60,7 +60,7 @@ export const LOCATION_LABELS: Record<LocationType, string> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Brouillon",
-  PENDING: "En attente de modération",
+  PENDING: "En attente de validation",
   PUBLISHED: "Publiée",
   REJECTED: "Refusée",
   SUSPENDED: "Suspendue",

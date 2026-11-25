@@ -38,7 +38,7 @@ interface Point {
   lng: number;
 }
 
-describeWithDatabase('listing form and communes/locate (S3)', () => {
+describeWithDatabase('listing form (S3), submission (S4)', () => {
   let pool: Pool;
   let appPool: Pool;
   let db: Kysely<Database>;
@@ -101,7 +101,10 @@ describeWithDatabase('listing form and communes/locate (S3)', () => {
       lat: points.rows[0].in_lat,
       lng: points.rows[0].in_lng,
     };
-    justOutside = { lat: points.rows[0].out_lat, lng: points.rows[0].out_lng };
+    justOutside = {
+      lat: points.rows[0].out_lat,
+      lng: points.rows[0].out_lng,
+    };
 
     for (const slug of ['agoe-nyive-3', 'golfe-1', 'golfe-2']) {
       ids[slug] = (
@@ -370,6 +373,210 @@ describeWithDatabase('listing form and communes/locate (S3)', () => {
         },
         otherCookie,
       ).expect(409);
+    });
+  });
+
+  describe('submission (S4)', () => {
+    const details = () => ({
+      categoryId: ids.reparation,
+      name: 'Atelier Afi',
+      description: 'Réparation de téléphones.',
+      phone: '90 12 34 56',
+      whatsapp: '',
+    });
+    const location = () => ({
+      type: 'FIXED',
+      communeId: ids['agoe-nyive-3'],
+      point: insideAgoeNyive3,
+      source: 'MANUAL_PIN',
+    });
+    async function draft(body: object = {}): Promise<string> {
+      const response = await http()
+        .post('/api/v1/pro/listings')
+        .set('Cookie', cookie)
+        .send({
+          entityType: 'BUSINESS',
+          categoryId: ids.reparation,
+          name: 'Atelier Afi',
+          location: location(),
+          ...body,
+        })
+        .expect(201);
+      return (response.body as { listing: { id: string } }).listing.id;
+    }
+    const submit = (id: string, as = cookie) =>
+      http().post(`/api/v1/pro/listings/${id}/submit`).set('Cookie', as);
+    const patch = (id: string, body: object, as = cookie) =>
+      http().patch(`/api/v1/pro/listings/${id}`).set('Cookie', as).send(body);
+    const statusOf = async (id: string) =>
+      (
+        await db
+          .selectFrom('establishments')
+          .select('publication_status')
+          .where('id', '=', id)
+          .executeTakeFirstOrThrow()
+      ).publication_status;
+    const logOf = (id: string) =>
+      db
+        .selectFrom('moderation_log')
+        .select(['action', 'from_status', 'to_status', 'actor_id'])
+        .where('establishment_id', '=', id)
+        .orderBy('created_at')
+        .execute();
+
+    it('names what is missing, then sends the completed draft, with its log line', async () => {
+      const id = await draft();
+      const refused = await submit(id).expect(422);
+      expect(refused.body).toMatchObject({ code: 'SUBMISSION_INCOMPLETE' });
+      expect(
+        Object.keys((refused.body as { fields: object }).fields).sort(),
+      ).toEqual(['description', 'phone']);
+      expect(await statusOf(id)).toBe('DRAFT');
+      expect(await logOf(id)).toEqual([]);
+
+      const changed = await patch(id, details()).expect(200);
+      expect(changed.body).toMatchObject({
+        listing: {
+          status: 'DRAFT',
+          description: 'Réparation de téléphones.',
+          phone: '+22890123456',
+          whatsapp: null,
+        },
+      });
+      const sent = await submit(id).expect(200);
+      expect(sent.body).toMatchObject({ listing: { status: 'PENDING' } });
+      const owner = await db
+        .selectFrom('establishments')
+        .select('owner_id')
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow();
+      expect(await logOf(id)).toEqual([
+        {
+          action: 'SUBMIT',
+          from_status: 'DRAFT',
+          to_status: 'PENDING',
+          actor_id: owner.owner_id,
+        },
+      ]);
+    });
+
+    it('submits once when tapped several times at once', async () => {
+      const id = await draft(details());
+
+      // The row is held while the four requests arrive, so they really
+      // overlap: without the API's own lock, all of them would read DRAFT.
+      const held = await db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('establishments')
+          .select('id')
+          .where('id', '=', id)
+          .forUpdate()
+          .execute();
+        const answers = Promise.all(
+          Array.from({ length: 4 }, () => submit(id).then((r) => r.status)),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // In an object: returned as is, it would be awaited inside the lock.
+        return { answers };
+      });
+      expect((await held.answers).sort()).toEqual([200, 409, 409, 409]);
+      expect(await logOf(id)).toHaveLength(1);
+    });
+
+    it('changes nothing while the listing is under review', async () => {
+      const id = await draft(details());
+      await submit(id).expect(200);
+      await patch(id, { ...details(), name: 'Autre nom' }).expect(409);
+      await submit(id).expect(409);
+      expect(await statusOf(id)).toBe('PENDING');
+    });
+
+    it("answers 404 for someone else's listing, 401 without a session", async () => {
+      const id = await draft(details());
+      await submit(id, otherCookie).expect(404);
+      await patch(id, details(), otherCookie).expect(404);
+      await submit(id, '').expect(401);
+      await patch(id, details(), '').expect(401);
+      expect(await statusOf(id)).toBe('DRAFT');
+    });
+
+    it('keeps the status together with its log line', async () => {
+      const id = await draft(details());
+      await sql`REVOKE INSERT ON moderation_log FROM cornergood_app`.execute(
+        db,
+      );
+      try {
+        await submit(id).expect(500);
+      } finally {
+        await sql`GRANT INSERT ON moderation_log TO cornergood_app`.execute(db);
+      }
+      expect(await statusOf(id)).toBe('DRAFT');
+    });
+
+    it('asks a mobile activity for the communes it serves', async () => {
+      const id = await draft({
+        ...details(),
+        location: {
+          type: 'MOBILE',
+          communeId: ids['golfe-1'],
+          servedCommuneIds: [ids['golfe-1']],
+        },
+      });
+      await sql`DELETE FROM location_served_communes WHERE location_id IN
+        (SELECT id FROM locations WHERE establishment_id = ${id})`.execute(db);
+      const refused = await submit(id).expect(422);
+      expect((refused.body as { fields: object }).fields).toHaveProperty(
+        'location',
+      );
+    });
+
+    it('lets a rejected listing be corrected, then sent again', async () => {
+      const id = await draft(details());
+      await db
+        .updateTable('establishments')
+        .set({ publication_status: 'REJECTED' })
+        .where('id', '=', id)
+        .execute();
+      await submit(id).expect(409);
+      await patch(id, details()).expect(200);
+      await submit(id).expect(200);
+      expect((await logOf(id)).map((line) => line.action)).toEqual([
+        'EDIT',
+        'SUBMIT',
+      ]);
+    });
+
+    it('refuses invalid details, and a category of the other kind', async () => {
+      const id = await draft(details());
+      const refused = await patch(id, {
+        ...details(),
+        name: 'x',
+        phone: '12',
+      });
+      expect(refused.status).toBe(400);
+      expect(
+        Object.keys((refused.body as { fields: object }).fields).sort(),
+      ).toEqual(['name', 'phone']);
+      await patch(id, {
+        ...details(),
+        categoryId: ids['etablissement-scolaire'],
+      }).expect(400);
+    });
+
+    it('counts the listings under review in the limit of one account', async () => {
+      await sql`UPDATE establishments SET publication_status = 'PENDING',
+        description = 'x', phone = '+22890000000'
+        WHERE slug LIKE 'brouillon-cap-%'`.execute(db);
+      await http()
+        .post('/api/v1/pro/listings')
+        .set('Cookie', otherCookie)
+        .send({
+          entityType: 'BUSINESS',
+          categoryId: ids.reparation,
+          name: 'Une de plus',
+          location: location(),
+        })
+        .expect(409);
     });
   });
 });
