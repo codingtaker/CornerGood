@@ -7,23 +7,28 @@
  * of 'unsafe-inline' for scripts, which Next.js needs without nonces. What it
  * does block: being framed by another site (clickjacking), plugins, a <base>
  * hijack, forms or fetches sent anywhere but this site, and images, fonts or
- * scripts from other hosts. React escapes what it renders, which remains the
+ * scripts from other hosts (map tiles excepted). React escapes what it renders, which remains the
  * main defence against script injection. Moving to nonces is possible later
  * (every page then rendered on each request).
  */
 
+import { tilesOrigin } from "./map-tiles";
+
 export function contentSecurityPolicy(isDev: boolean): string {
+  const tiles = tilesOrigin();
   return [
     "default-src 'self'",
     // 'unsafe-eval' only in development: React uses eval for its debug tools.
     `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' blob: data:",
+    `img-src 'self' blob: data: ${tiles}`,
     "font-src 'self'",
-    // The API is reached through /api/v1 on this same origin.
-    "connect-src 'self'",
+    // The API is reached through /api/v1 on this same origin; MapLibre fetches
+    // the tiles.
+    `connect-src 'self' ${tiles}`,
     "manifest-src 'self'",
-    "worker-src 'self'",
+    // MapLibre starts its worker from a blob.
+    "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
