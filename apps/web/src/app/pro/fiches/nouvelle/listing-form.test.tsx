@@ -14,6 +14,25 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, refresh: vi.fn() }),
 }));
 
+// jsdom has no WebGL: the map is replaced by a button that moves the pin.
+vi.mock("next/dynamic", () => ({
+  default: () =>
+    function FakeMap({
+      onMoved,
+    }: {
+      onMoved: (point: { lat: number; lng: number }) => void;
+    }) {
+      return (
+        <button
+          type="button"
+          onClick={() => onMoved({ lat: 6.2001, lng: 1.2002 })}
+        >
+          Déplacer l&apos;épingle
+        </button>
+      );
+    },
+}));
+
 const communes: Commune[] = [
   {
     id: "c-an3",
@@ -92,6 +111,14 @@ describe("ListingForm", () => {
       "c-an3",
     );
 
+    // Nothing is sent until the pin is confirmed on the map (ADR-041).
+    fireEvent.click(
+      screen.getByRole("button", { name: "Enregistrer le brouillon" }),
+    );
+    expect(screen.getByText(/Vérifiez l'épingle sur la carte/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Oui, c'est ici" }));
+
     fireEvent.change(screen.getByLabelText("Catégorie"), {
       target: { value: "cat-rep" },
     });
@@ -120,6 +147,67 @@ describe("ListingForm", () => {
         servedCommuneIds: [],
       },
     });
+  });
+
+  it("places the pin by hand, without any GPS position", async () => {
+    fetchMock
+      .mockReturnValueOnce(json(200, { commune: { id: "c-g1" } }))
+      .mockReturnValueOnce(json(201, { listing: { id: "listing-3" } }));
+    render(<ListingForm communes={communes} categories={categories} />);
+    fireEvent.click(screen.getByText("Je suis devant mon activité"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Placer moi-même sur la carte" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Déplacer l'épingle" }));
+    await screen.findByText(/Commune proposée : Golfe 1/);
+    // A choice in the list survives the confirmation of the pin.
+    fireEvent.change(screen.getByLabelText("Commune"), {
+      target: { value: "c-an3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Oui, c'est ici" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Enregistrer le brouillon" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(
+      JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)
+        .location,
+    ).toMatchObject({
+      communeId: "c-an3",
+      point: { lat: 6.2001, lng: 1.2002 },
+      source: "MANUAL_PIN",
+      accuracyM: null,
+      capturedAt: null,
+    });
+  });
+
+  it("calls a GPS position moved by hand a manual pin, to confirm again", async () => {
+    fetchMock.mockImplementation(() => json(200, { commune: { id: "c-an3" } }));
+    render(<ListingForm communes={communes} categories={categories} />);
+    fireEvent.click(screen.getByText("Je suis devant mon activité"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Relever ma position ici" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Oui, c'est ici" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Déplacer l'épingle" }));
+    expect(await screen.findByText("Épingle placée à la main.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Oui, c'est ici" })).toBeTruthy();
+  });
+
+  it("never shows a map for a home: its area is not sent to the tile server", async () => {
+    fetchMock.mockImplementation(() => json(200, { commune: { id: "c-an3" } }));
+    render(<ListingForm communes={communes} categories={categories} />);
+    fireEvent.click(screen.getByText("Je travaille à domicile"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Relever la position de mon domicile",
+      }),
+    );
+    await screen.findByRole("status");
+    expect(screen.queryByText("Déplacer l'épingle")).toBeNull();
+    expect(screen.queryByText(/carte/)).toBeNull();
   });
 
   it("asks for the communes served by a mobile activity, without a position", async () => {

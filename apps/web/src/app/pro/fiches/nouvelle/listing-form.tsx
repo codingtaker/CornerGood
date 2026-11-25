@@ -60,15 +60,30 @@ export function ListingForm({ communes, categories }: ListingFormProps) {
     setMessage(null);
   }
 
-  function captured(located: LocatedPosition) {
+  function positionChanged(located: LocatedPosition) {
     setPosition(located);
-    // Proposed, not imposed: the list stays editable (ADR-044).
-    if (located.proposedCommuneId) setCommuneId(located.proposedCommuneId);
+    // Proposed once, not imposed: the list stays editable (ADR-044), and
+    // confirming the pin does not undo a choice made in it.
+    if (
+      located.proposedCommuneId &&
+      located.proposedCommuneId !== position?.proposedCommuneId
+    ) {
+      setCommuneId(located.proposedCommuneId);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!locationType) return;
+    // The pin is always checked on the map (ADR-041).
+    if (position && !position.confirmed) {
+      setMessage("Vérifiez les champs indiqués.");
+      setErrors({
+        "location.point":
+          "Vérifiez l'épingle sur la carte, puis touchez « Oui, c'est ici ».",
+      });
+      return;
+    }
     const data = new FormData(event.currentTarget);
     const text = (name: string) => String(data.get(name) ?? "");
 
@@ -90,7 +105,7 @@ export function ListingForm({ communes, categories }: ListingFormProps) {
             type: locationType,
             communeId,
             point: position ? { lat: position.lat, lng: position.lng } : null,
-            source: position ? "DEVICE_GPS" : null,
+            source: position?.source ?? null,
             accuracyM: position?.accuracyM ?? null,
             capturedAt: position?.capturedAt ?? null,
             addressHint: text("addressHint"),
@@ -169,7 +184,8 @@ export function ListingForm({ communes, categories }: ListingFormProps) {
           )}
           <PositionCapture
             position={position}
-            onCaptured={captured}
+            onChange={positionChanged}
+            withMap={locationType === "FIXED"}
             communes={communes}
             buttonLabel={
               locationType === "FIXED"
