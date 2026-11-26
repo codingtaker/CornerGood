@@ -59,7 +59,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `POST /pro/listings` | session | Creates a draft listing with its location (see *Listings* below) |
 | `PATCH /pro/listings/:id` | owner | Replaces name, category, description, phone and WhatsApp of a draft; a rejected listing becomes a draft again (`409` in any other status) |
 | `POST /pro/listings/:id/submit` | owner | `DRAFT` → `PENDING` (see *Submission* below) |
-| `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional |
+| `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional (see *Back-office* below) |
 
 - Sessions live on the server (`sessions` table, ADR-021). The browser holds a random token in the `cg_session` cookie: `HttpOnly`, `SameSite=Lax`, and `Secure` when `NODE_ENV=production`. The database stores only its SHA-256. A session lasts 30 days; signing out, deactivating the account or expiry closes it. Signing in again on a device closes the session its cookie held, and an account keeps at most 10 open sessions (the oldest are closed first). Every hour, each API instance deletes expired sessions, stale sign-in counters and SMS codes expired for a day (`MaintenanceService`).
 - **Deleting an account** (`DELETE /auth/me`, page `/pro/compte`), confirmed by the password; wrong passwords are counted like sign-in failures. The row of a user cannot be deleted, since listings and the moderation log refer to it and the log is evidence. So the account keeps its row, emptied of personal data (migration `0006`): name "Compte supprimé", no phone, no email, an unusable password, inactive, `deleted_at` set; a constraint makes the database refuse a "deleted" account that keeps any of these. Its sessions, SMS codes and sign-in counters are deleted, and its listings archived, each with a line in the moderation log. The number can then open a new account. The only active administrator cannot delete their account.
@@ -122,6 +122,24 @@ The commune found from the position is only proposed: the person confirms or cha
 - Files are kept behind the `MediaStorage` interface (ADR-029): the folder `MEDIA_DIR` in the prototype (`var/media`, ignored by Git), to back up with the database.
 - 20 uploads per account and per hour, then `429`. Deleting an account deletes the photos of all its listings, files included.
 - This route is the only one that accepts something else than JSON; it then requires the `Origin` of the web app.
+
+## Back-office (S4)
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `GET /admin/moderation` | moderator, administrator | Listings `PENDING`, the oldest submission first, with the number of photos to check |
+| `GET /admin/listings/:id` | moderator, administrator | Everything needed to decide: private data and exact point, owner, photos, moderation log |
+| `POST /admin/listings/:id/approve` | **administrator** | `PENDING` → `PUBLISHED`, sets `published_at` |
+| `POST /admin/listings/:id/reject` | **administrator** | `PENDING` → `REJECTED`; body `reason` (1 to 500 characters), else `422 REASON_REQUIRED` |
+| `GET /admin/media/:id` | moderator, administrator | One photo, never cached |
+| `POST /admin/media/:id/approve`, `…/reject` | moderator, administrator | A photo becomes `APPROVED`, or `REJECTED` with its `reason` |
+
+- Only the administrator publishes or rejects a listing (ADR-010); a moderator checks the photos (ADR-039).
+- Each decision changes the status and writes its line in `moderation_log` in one transaction, under a row lock: a second decision, or a late one, answers `409 INVALID_STATE`.
+- Photo decisions are logged too (`APPROVE_MEDIA`, `REJECT_MEDIA`, migration 0008). The line keeps the id of the photo without a foreign key, so the decision stays after the professional deletes a refused photo.
+- Photos are decided only on a listing sent for validation or published: a draft is the professional's work in progress.
+- The professional reads the reason on `/pro/fiches/:id` (`rejection` in `GET /pro/listings/:id`, `rejectionReason` for a photo) until the listing is sent again, corrects it, and sends it again.
+- Screens: `/admin/moderation` (queue) and `/admin/fiches/:id` (decision page: "Publier", "Rejeter avec motif", photos one by one, history).
 
 ## Useful commands
 

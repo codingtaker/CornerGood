@@ -16,6 +16,7 @@ const photo = (id: string, isCover = false): OwnPhoto => ({
   id,
   status: "PENDING",
   isCover,
+  rejectionReason: null,
 });
 
 describe("PhotoSection", () => {
@@ -91,6 +92,14 @@ describe("PhotoSection", () => {
     cleanup();
     show(["1", "2", "3", "4", "5", "6"].map((id) => photo(id)));
     expect(screen.queryByLabelText("Ajouter une photo")).toBeNull();
+  });
+
+  it("shows why a photo was refused", () => {
+    show([
+      { ...photo("p1", true), status: "REJECTED", rejectionReason: "Floue." },
+    ]);
+    expect(screen.getByText("Floue.")).toBeTruthy();
+    expect(screen.getByText(/Refusée/)).toBeTruthy();
   });
 
   it("warns a home-based activity about what the photo shows", () => {

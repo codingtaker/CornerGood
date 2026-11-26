@@ -14,6 +14,7 @@ import type {
   EntityType,
   LocationType,
   LocationVisibility,
+  PositionSource,
   PublicationStatus,
 } from '../database/database.types';
 import { TerritoryService } from '../territory/territory.service';
@@ -45,6 +46,8 @@ export interface OwnListing extends ListingSummary {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  /** Why the listing was refused, until it is sent again (UC20). */
+  rejection: { reason: string; at: Date } | null;
   location: {
     type: LocationType;
     visibility: LocationVisibility;
@@ -52,6 +55,7 @@ export interface OwnListing extends ListingSummary {
     /** Exact, for the owner only; public pages use public_locations. */
     point: { lat: number; lng: number } | null;
     accuracyM: number | null;
+    source: PositionSource | null;
     addressHint: string | null;
     servedCommunes: { id: string; name: string }[];
   } | null;
@@ -390,8 +394,17 @@ export class ListingsService {
   }
 
   /** One listing of its owner, exact point included; 404 for anyone else. */
-  async getOwn(userId: string, id: string): Promise<OwnListing> {
-    const listing = await this.db
+  getOwn(userId: string, id: string): Promise<OwnListing> {
+    return this.load(id, userId);
+  }
+
+  /** Any listing, for moderators (the route checks the role). */
+  getForModeration(id: string): Promise<OwnListing> {
+    return this.load(id, null);
+  }
+
+  private async load(id: string, ownerId: string | null): Promise<OwnListing> {
+    let query = this.db
       .selectFrom('establishments')
       .innerJoin('categories', 'categories.id', 'establishments.category_id')
       .select([
@@ -405,9 +418,11 @@ export class ListingsService {
         'categories.id as category_id',
         'categories.name as category_name',
       ])
-      .where('establishments.id', '=', id)
-      .where('establishments.owner_id', '=', userId)
-      .executeTakeFirst();
+      .where('establishments.id', '=', id);
+    if (ownerId !== null) {
+      query = query.where('establishments.owner_id', '=', ownerId);
+    }
+    const listing = await query.executeTakeFirst();
     // Same answer for "not yours" and "does not exist".
     if (!listing)
       throw new NotFoundException({ message: 'Fiche introuvable.' });
@@ -420,6 +435,7 @@ export class ListingsService {
         'locations.location_type',
         'locations.visibility',
         'locations.position_accuracy_m',
+        'locations.position_source',
         'locations.address_hint',
         'communes.id as commune_id',
         'communes.name as commune_name',
@@ -444,6 +460,16 @@ export class ListingsService {
           .execute()
       : [];
 
+    // The last refusal, unless the listing was sent again since.
+    const lastDecision = await this.db
+      .selectFrom('moderation_log')
+      .select(['action', 'reason', 'created_at'])
+      .where('establishment_id', '=', id)
+      .where('action', 'in', ['REJECT', 'SUBMIT'])
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+
     return {
       id: listing.id,
       name: listing.name,
@@ -453,6 +479,10 @@ export class ListingsService {
       description: listing.description,
       phone: listing.phone,
       whatsapp: listing.whatsapp,
+      rejection:
+        lastDecision?.action === 'REJECT' && lastDecision.reason
+          ? { reason: lastDecision.reason, at: lastDecision.created_at }
+          : null,
       location: location
         ? {
             type: location.location_type,
@@ -463,6 +493,7 @@ export class ListingsService {
                 ? { lat: location.lat, lng: location.lng }
                 : null,
             accuracyM: location.position_accuracy_m,
+            source: location.position_source,
             addressHint: location.address_hint,
             servedCommunes: served,
           }
