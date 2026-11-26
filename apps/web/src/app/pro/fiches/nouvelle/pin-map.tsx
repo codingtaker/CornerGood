@@ -61,6 +61,14 @@ export function PinMap({ point, accuracyM, onMoved }: PinMapProps) {
     import("maplibre-gl")
       .then((maplibre) => {
         if (cancelled || !container.current) return;
+        // MapLibre 6 looks for its worker next to its own file, which the
+        // bundler renames: without this, the pin, the circle and the commune
+        // borders never draw. The bundler publishes the file on our origin,
+        // so the CSP (worker-src 'self') allows it.
+        maplibre.setWorkerUrl(
+          new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url)
+            .href,
+        );
         const start = latest.current.point;
         const map = new maplibre.Map({
           container: container.current,
