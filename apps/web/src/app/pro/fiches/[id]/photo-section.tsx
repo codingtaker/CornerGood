@@ -109,6 +109,11 @@ export function PhotoSection({
                 {PHOTO_STATUS_LABELS[photo.status] ?? photo.status}
                 {photo.isCover && " · couverture"}
               </span>
+              {photo.rejectionReason && (
+                <span className="text-sm text-red-800">
+                  {photo.rejectionReason}
+                </span>
+              )}
               {editable && (
                 <button
                   type="button"

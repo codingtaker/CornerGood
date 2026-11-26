@@ -67,6 +67,25 @@ export default async function OwnListingPage({
         </p>
       )}
 
+      {listing.rejection && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded-md bg-red-50 px-3 py-2 text-red-900"
+        >
+          <p className="font-semibold">
+            {listing.status === "REJECTED"
+              ? "Votre fiche n'a pas été publiée. Motif :"
+              : "Motif du refus, à corriger avant de renvoyer :"}
+          </p>
+          <p className="whitespace-pre-line">{listing.rejection.reason}</p>
+          {listing.status === "REJECTED" && (
+            <p className="text-sm">
+              Corrigez la fiche ci-dessous, puis renvoyez-la pour validation.
+            </p>
+          )}
+        </div>
+      )}
+
       {location && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
           <dt className="font-medium">Lieu</dt>

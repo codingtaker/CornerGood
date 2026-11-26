@@ -21,6 +21,7 @@ const listing: OwnListing = {
   description: null,
   phone: null,
   whatsapp: null,
+  rejection: null,
   location: null,
 };
 

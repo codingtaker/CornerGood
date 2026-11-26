@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ADMIN_ROLES, apiFetch, getCurrentUser } from "@/lib/session";
 import { SignOutButton } from "../sign-out-button";
+import { AccessDenied } from "./access-denied";
 
 export const metadata: Metadata = { title: "Modération · CornerGood" };
 
@@ -12,19 +13,7 @@ export default async function AdminPage() {
 
   // The API refuses these figures to a professional (403); the page says so
   // instead of showing an empty space.
-  if (!ADMIN_ROLES.includes(user.role)) {
-    return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-4">
-        <h1 className="text-2xl font-bold">Accès refusé</h1>
-        <p>
-          Cet espace est réservé à l&apos;équipe de modération de CornerGood.
-        </p>
-        <Link href="/pro" className="font-semibold text-accent underline">
-          Retour à mon espace pro
-        </Link>
-      </main>
-    );
-  }
+  if (!ADMIN_ROLES.includes(user.role)) return <AccessDenied />;
 
   const response = await apiFetch("/admin/overview");
   const overview = response.ok
@@ -54,6 +43,12 @@ export default async function AdminPage() {
       ) : (
         <p role="alert">Les chiffres sont indisponibles pour le moment.</p>
       )}
+      <Link
+        href="/admin/moderation"
+        className="rounded-md bg-accent px-4 py-3 text-center font-semibold text-white"
+      >
+        Examiner les fiches en attente
+      </Link>
     </main>
   );
 }

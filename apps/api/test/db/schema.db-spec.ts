@@ -1,5 +1,6 @@
 import { Kysely, sql } from 'kysely';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { WEB_BOUNDARIES_PATH } from '../../src/database/geodata/generate-web-boundaries';
 import { recoverAdmin } from '../../src/admin/admin-recovery';
@@ -618,6 +619,87 @@ describeWithDatabase('database schema', () => {
         ).resolves.toBeDefined();
       },
     );
+
+    describe('photo decisions (0008)', () => {
+      const photo = async (establishmentId: string) =>
+        (
+          await db
+            .insertInto('media')
+            .values({
+              establishment_id: establishmentId,
+              storage_key: `${establishmentId}/${randomUUID()}.webp`,
+              mime_type: 'image/webp',
+              size_bytes: 1000,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+        ).id;
+
+      it('requires a reason to refuse a photo, and only then', async () => {
+        const id = await photo(await createDraft());
+        const set = (status: 'REJECTED' | 'APPROVED', reason: string | null) =>
+          db
+            .updateTable('media')
+            .set({ status, rejection_reason: reason })
+            .where('id', '=', id)
+            .execute();
+        await expect(set('REJECTED', ' ')).rejects.toThrow(
+          /rejected_media_has_reason/,
+        );
+        await expect(set('APPROVED', 'Floue')).rejects.toThrow(
+          /media_reason_only_when_rejected/,
+        );
+        await expect(set('REJECTED', 'Floue')).resolves.toBeDefined();
+      });
+
+      it('logs a photo decision with its photo and no status change', async () => {
+        const establishmentId = await createDraft();
+        const mediaId = await photo(establishmentId);
+        const log = (values: {
+          action: 'APPROVE_MEDIA' | 'REJECT_MEDIA' | 'APPROVE';
+          media_id?: string;
+          reason?: string;
+          from_status?: 'PENDING';
+        }) =>
+          db
+            .insertInto('moderation_log')
+            .values({
+              establishment_id: establishmentId,
+              actor_id: ownerId,
+              ...values,
+            })
+            .execute();
+
+        await expect(log({ action: 'APPROVE_MEDIA' })).rejects.toThrow(
+          /media_decision_names_its_photo/,
+        );
+        await expect(
+          log({
+            action: 'APPROVE_MEDIA',
+            media_id: mediaId,
+            from_status: 'PENDING',
+          }),
+        ).rejects.toThrow(/media_decision_names_its_photo/);
+        await expect(
+          log({ action: 'APPROVE', media_id: mediaId }),
+        ).rejects.toThrow(/media_decision_names_its_photo/);
+        await expect(
+          log({ action: 'REJECT_MEDIA', media_id: mediaId }),
+        ).rejects.toThrow(/decision_has_reason/);
+        await expect(
+          log({ action: 'REJECT_MEDIA', media_id: mediaId, reason: 'Floue' }),
+        ).resolves.toBeDefined();
+
+        // The decision stays once the photo is deleted.
+        await db.deleteFrom('media').where('id', '=', mediaId).execute();
+        const kept = await db
+          .selectFrom('moderation_log')
+          .select('media_id')
+          .where('media_id', '=', mediaId)
+          .execute();
+        expect(kept).toHaveLength(1);
+      });
+    });
 
     it('never lets the moderation log be edited or deleted', async () => {
       const establishmentId = await createDraft();

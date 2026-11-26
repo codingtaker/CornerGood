@@ -31,6 +31,8 @@ export interface OwnPhoto {
   id: string;
   status: MediaStatus;
   isCover: boolean;
+  /** Why a moderator refused it (REJECTED only). */
+  rejectionReason: string | null;
 }
 
 @Injectable()
@@ -46,7 +48,12 @@ export class MediaService {
     const rows = await this.db
       .selectFrom('media')
       .innerJoin('establishments', 'establishments.id', 'establishment_id')
-      .select(['media.id', 'media.status', 'media.is_cover'])
+      .select([
+        'media.id',
+        'media.status',
+        'media.is_cover',
+        'media.rejection_reason',
+      ])
       .where('establishment_id', '=', listingId)
       .where('establishments.owner_id', '=', userId)
       .orderBy('media.is_cover', 'desc')
@@ -57,6 +64,7 @@ export class MediaService {
       id: row.id,
       status: row.status,
       isCover: row.is_cover,
+      rejectionReason: row.rejection_reason,
     }));
   }
 
@@ -104,7 +112,12 @@ export class MediaService {
           })
           .returning(['id', 'status', 'is_cover'])
           .executeTakeFirstOrThrow();
-        return { id: row.id, status: row.status, isCover: row.is_cover };
+        return {
+          id: row.id,
+          status: row.status,
+          isCover: row.is_cover,
+          rejectionReason: null,
+        };
       });
     } catch (error) {
       await this.deleteFiles([key]);
@@ -125,6 +138,18 @@ export class MediaService {
       .where('media.id', '=', mediaId)
       .where('establishment_id', '=', listingId)
       .where('establishments.owner_id', '=', userId)
+      .executeTakeFirst();
+    const photo = row && (await this.storage.get(row.storage_key));
+    if (!photo) throw new NotFoundException({ message: 'Photo introuvable.' });
+    return photo;
+  }
+
+  /** Any photo, for moderators (the route checks the role). */
+  async readForModeration(mediaId: string): Promise<Buffer> {
+    const row = await this.db
+      .selectFrom('media')
+      .select('storage_key')
+      .where('id', '=', mediaId)
       .executeTakeFirst();
     const photo = row && (await this.storage.get(row.storage_key));
     if (!photo) throw new NotFoundException({ message: 'Photo introuvable.' });

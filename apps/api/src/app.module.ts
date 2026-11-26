@@ -7,6 +7,8 @@ import { HealthController } from './health/health.controller';
 import { ListingsController } from './listings/listings.controller';
 import { ListingsService } from './listings/listings.service';
 import { MediaModule } from './media/media.module';
+import { ModerationController } from './moderation/moderation.controller';
+import { ModerationService } from './moderation/moderation.service';
 import { SmsModule } from './sms/sms.module';
 import { AdminController } from './spaces/spaces.controllers';
 import { TerritoryController } from './territory/territory.controller';
@@ -30,7 +32,8 @@ import { TerritoryService } from './territory/territory.service';
     TerritoryController,
     ListingsController,
     AdminController,
+    ModerationController,
   ],
-  providers: [TerritoryService, ListingsService],
+  providers: [TerritoryService, ListingsService, ModerationService],
 })
 export class AppModule {}

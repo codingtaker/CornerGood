@@ -38,7 +38,9 @@ export type ModerationAction =
   | 'ARCHIVE'
   | 'EDIT'
   | 'VERIFY'
-  | 'UNVERIFY';
+  | 'UNVERIFY'
+  | 'APPROVE_MEDIA'
+  | 'REJECT_MEDIA';
 export type ReportReason =
   | 'WRONG_INFO'
   | 'CLOSED'
@@ -202,6 +204,8 @@ export interface MediaTable {
   status: Generated<MediaStatus>;
   display_order: Generated<number>;
   is_cover: Generated<boolean>;
+  /** Required when REJECTED, NULL otherwise (migration 0008). */
+  rejection_reason: string | null;
   captured_at: Timestamp | null;
   created_at: CreatedAt;
 }
@@ -222,6 +226,8 @@ export interface ModerationLogTable {
   id: Generated<string>;
   establishment_id: string;
   revision_id: string | null;
+  /** The photo of an APPROVE_MEDIA or REJECT_MEDIA line, kept after its deletion (0008). */
+  media_id: string | null;
   actor_id: string;
   action: ModerationAction;
   from_status: PublicationStatus | null;
