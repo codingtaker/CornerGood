@@ -27,5 +27,9 @@
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e -w @cornergood/api",
     "test:db": "npm run test:db -w @cornergood/api"
+  },
+  "overrides": {
+    "glob": "^14.0.6",
+    "minimatch@>=7.0.0 <11.0.1": "^11.0.9"
   }
 }
