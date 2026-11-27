@@ -20,6 +20,8 @@ export interface Category {
 export interface OwnListing {
   id: string;
   name: string;
+  /** The public address once published: /fiches/{slug}. */
+  slug: string;
   status: string;
   entityType: EntityType;
   category: { id: string; name: string };
@@ -130,4 +132,28 @@ export function formatDate(iso: string): string {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+/** What anyone sees of a published listing: GET /listings/{slug}. */
+export interface PublicListing {
+  slug: string;
+  name: string;
+  entityType: EntityType;
+  category: { slug: string; name: string };
+  description: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  verificationStatus: string;
+  publishedAt: string | null;
+  updatedAt: string;
+  location: {
+    type: LocationType;
+    commune: { slug: string; name: string };
+    /** Exact for a fixed place, the centre of a sector for a home. */
+    position: { lat: number; lng: number } | null;
+    approximate: boolean;
+    addressHint: string | null;
+    servedCommunes: { slug: string; name: string }[];
+  } | null;
+  photos: { id: string; isCover: boolean }[];
 }

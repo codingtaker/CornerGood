@@ -3,12 +3,11 @@
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
+import { circle, type MapPoint } from "@/lib/map-shapes";
 import { MAP_ATTRIBUTION, TILES_URL } from "@/lib/map-tiles";
+import { setWorkerUrl } from "@/lib/maplibre-worker";
 
-export interface MapPoint {
-  lat: number;
-  lng: number;
-}
+export type { MapPoint };
 
 interface PinMapProps {
   /** Null until a point is placed by hand. */
@@ -21,21 +20,6 @@ interface PinMapProps {
 
 /** West, south, east, north of Grand Lomé, with a little margin. */
 const GRAND_LOME: [number, number, number, number] = [1.07, 6.1, 1.36, 6.33];
-
-/** Polygon of the accuracy circle (MapLibre circles are in pixels). */
-function circle({ lat, lng }: MapPoint, radiusM: number): GeoJSON.Feature {
-  const dLat = radiusM / 111_320;
-  const dLng = dLat / Math.cos((lat * Math.PI) / 180);
-  const ring = Array.from({ length: 49 }, (_, i) => {
-    const angle = (i / 48) * 2 * Math.PI;
-    return [lng + dLng * Math.cos(angle), lat + dLat * Math.sin(angle)];
-  });
-  return {
-    type: "Feature",
-    properties: {},
-    geometry: { type: "Polygon", coordinates: [ring] },
-  };
-}
 
 const EMPTY: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
@@ -61,14 +45,7 @@ export function PinMap({ point, accuracyM, onMoved }: PinMapProps) {
     import("maplibre-gl")
       .then((maplibre) => {
         if (cancelled || !container.current) return;
-        // MapLibre 6 looks for its worker next to its own file, which the
-        // bundler renames: without this, the pin, the circle and the commune
-        // borders never draw. The bundler publishes the file on our origin,
-        // so the CSP (worker-src 'self') allows it.
-        maplibre.setWorkerUrl(
-          new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url)
-            .href,
-        );
+        setWorkerUrl(maplibre);
         const start = latest.current.point;
         const map = new maplibre.Map({
           container: container.current,

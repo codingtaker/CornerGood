@@ -62,6 +62,14 @@ export default async function ReviewPage({
             ? "Activité"
             : "Lieu communautaire"}
         </p>
+        {listing.status === "PUBLISHED" && (
+          <Link
+            href={`/fiches/${listing.slug}`}
+            className="text-sm text-accent underline"
+          >
+            Voir la page publique
+          </Link>
+        )}
       </div>
 
       <section className="flex flex-col gap-2">

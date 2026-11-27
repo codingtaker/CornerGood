@@ -143,6 +143,18 @@ The commune found from the position is only proposed: the person confirms or cha
 - The professional reads the reason on `/pro/fiches/:id` (`rejection` in `GET /pro/listings/:id`, `rejectionReason` for a photo) until the listing is sent again, corrects it (details, photos, or the place with "Modifier le lieu"), and sends it again.
 - Screens: `/admin/moderation` (queue) and `/admin/fiches/:id` (decision page: "Publier", "Rejeter avec motif", photos one by one, history).
 
+## Public page of a listing
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `GET /listings/:slug` | public, cached 60 s | A published listing as anyone sees it (ADR-060); `404` for any other status, even when the address is known |
+| `GET /listings/:slug/photos/:id` | public, cached 60 s | An approved photo of a published listing; `404` for a photo pending or refused |
+
+- Read from the view `public_locations` only (ADR-046): the exact point of a fixed place, the centre of a sector of about 550 m for a home, no point for a mobile activity. Never the owner.
+- Only approved photos (ADR-019); a listing may be published while some photos await a decision, which then stay hidden (ADR-054).
+- 60 seconds of cache (ADR-022): a suspended listing disappears quickly. This replaces the API's `no-store` on these two routes only.
+- The web page is `/fiches/:slug`, the address to share: "Appeler" (`tel:`), "WhatsApp" (`wa.me`, with a first message), a map with the pin or the sector, "Itinéraire" for a fixed place. The owner reaches it from `/pro/fiches/:id` once published, the back-office from `/admin/fiches/:id`.
+
 ## Useful commands
 
 | Command | Effect |

@@ -45,6 +45,8 @@ export interface ListingSummary {
 }
 
 export interface OwnListing extends ListingSummary {
+  /** The public address once published: /fiches/{slug}. */
+  slug: string;
   entityType: EntityType;
   category: { id: string; name: string };
   description: string | null;
@@ -482,6 +484,7 @@ export class ListingsService {
       .select([
         'establishments.id',
         'establishments.name',
+        'establishments.slug',
         'establishments.publication_status',
         'establishments.entity_type',
         'establishments.description',
@@ -546,6 +549,7 @@ export class ListingsService {
     return {
       id: listing.id,
       name: listing.name,
+      slug: listing.slug,
       status: listing.publication_status,
       entityType: listing.entity_type,
       category: { id: listing.category_id, name: listing.category_name },

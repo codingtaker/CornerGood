@@ -9,6 +9,8 @@ import { ListingsService } from './listings/listings.service';
 import { MediaModule } from './media/media.module';
 import { ModerationController } from './moderation/moderation.controller';
 import { ModerationService } from './moderation/moderation.service';
+import { PublicListingsController } from './public/public-listings.controller';
+import { PublicListingsService } from './public/public-listings.service';
 import { SmsModule } from './sms/sms.module';
 import { AdminController } from './spaces/spaces.controllers';
 import { TerritoryController } from './territory/territory.controller';
@@ -33,7 +35,13 @@ import { TerritoryService } from './territory/territory.service';
     ListingsController,
     AdminController,
     ModerationController,
+    PublicListingsController,
   ],
-  providers: [TerritoryService, ListingsService, ModerationService],
+  providers: [
+    TerritoryService,
+    ListingsService,
+    ModerationService,
+    PublicListingsService,
+  ],
 })
 export class AppModule {}
