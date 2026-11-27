@@ -247,6 +247,8 @@ export interface ReportsTable {
   status: Generated<ReportStatus>;
   created_at: CreatedAt;
   resolved_at: Timestamp | null;
+  /** Required to close a report (migration 0009). */
+  resolution_note: string | null;
 }
 
 /** View: the only source of locations for public pages (ADR-046, 0007). */

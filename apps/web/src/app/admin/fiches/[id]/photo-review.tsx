@@ -7,7 +7,7 @@ import {
   PHOTO_STATUS_LABELS,
   type OwnPhoto,
 } from "@/lib/listings";
-import { sendDecision } from "./listing-decision";
+import { postAction } from "@/lib/admin-actions";
 
 /**
  * Photos of a listing, each validated or refused on its own by a moderator
@@ -34,9 +34,9 @@ export function PhotoReview({
     }
     setPending(photo.id);
     setErrors({});
-    const refused = await sendDecision(
+    const refused = await postAction(
       `/api/v1/admin/media/${photo.id}/${action}`,
-      action === "reject" ? reason : undefined,
+      action === "reject" ? { reason } : {},
     );
     setPending(null);
     if (refused) setErrors({ [photo.id]: refused });

@@ -50,6 +50,12 @@ export default async function AdminPage() {
       >
         Examiner les fiches en attente
       </Link>
+      <Link
+        href="/admin/signalements?statut=OPEN"
+        className="rounded-md border border-foreground/30 px-4 py-3 text-center font-semibold"
+      >
+        Signalements à traiter
+      </Link>
       {/* The API refuses the code to a moderator too (403). */}
       {user.role === "ADMIN" && <ResetCodeForm />}
     </main>

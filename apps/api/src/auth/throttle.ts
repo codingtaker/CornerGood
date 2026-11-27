@@ -31,6 +31,8 @@ export interface ThrottlePolicies {
   otpFailureIp: ThrottlePolicy;
   /** Photo uploads per account: each one costs image processing. */
   mediaUser: ThrottlePolicy;
+  /** Reports per address: anyone may report, without an account (ADR-017). */
+  reportIp: ThrottlePolicy;
 }
 
 export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
@@ -76,6 +78,13 @@ export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
   mediaUser: {
     windowSeconds: 3600,
     threshold: 20,
+    baseBlockSeconds: 600,
+    maxBlockSeconds: 3600,
+  },
+  // 5 reports per hour (contract §9), then a pause of 10 minutes up to 1 hour.
+  reportIp: {
+    windowSeconds: 3600,
+    threshold: 5,
     baseBlockSeconds: 600,
     maxBlockSeconds: 3600,
   },

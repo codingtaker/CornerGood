@@ -2,28 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { postAction } from "@/lib/admin-actions";
 import { MAX_REASON_LENGTH } from "@/lib/listings";
-
-/** Sends one decision; returns the API's message when it is refused. */
-export async function sendDecision(
-  url: string,
-  reason?: string,
-): Promise<string | null> {
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reason === undefined ? {} : { reason }),
-    });
-    if (response.ok) return null;
-    const body = (await response.json().catch(() => ({}))) as {
-      message?: string;
-    };
-    return body.message ?? "Une erreur est survenue. Réessayez.";
-  } catch {
-    return "Connexion impossible. Vérifiez votre réseau et réessayez.";
-  }
-}
 
 /**
  * "Publier" or "Rejeter avec motif" for a listing under review. Only the
@@ -49,9 +29,9 @@ export function ListingDecision({ listingId }: { listingId: string }) {
     }
     setPending(action);
     setError(null);
-    const refused = await sendDecision(
+    const refused = await postAction(
       `${url}/${action}`,
-      action === "reject" ? reason : undefined,
+      action === "reject" ? { reason } : {},
     );
     setPending(null);
     if (refused) setError(refused);
