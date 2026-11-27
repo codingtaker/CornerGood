@@ -109,6 +109,25 @@ export function PasswordResetForm() {
         >
           {pending ? "Patientez…" : "Recevoir un code par SMS"}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (phone.trim() === "") {
+              setMessage("Indiquez d'abord votre numéro de téléphone.");
+              return;
+            }
+            setMessage(null);
+            setInfo(null);
+            setStep("reset");
+          }}
+          className="text-accent underline"
+        >
+          J&apos;ai déjà un code
+        </button>
+        <p className="text-sm opacity-70">
+          Pas de SMS ? Appelez l&apos;équipe CornerGood : après avoir vérifié
+          qui vous êtes, elle vous donne un code.
+        </p>
       </form>
     );
   }
@@ -129,7 +148,9 @@ export function PasswordResetForm() {
         </button>
       </p>
       <label className="flex flex-col gap-1">
-        <span className="font-medium">Code reçu par SMS</span>
+        <span className="font-medium">
+          Code reçu par SMS ou donné par l&apos;équipe
+        </span>
         <input
           name="code"
           inputMode="numeric"

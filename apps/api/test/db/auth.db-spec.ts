@@ -945,4 +945,123 @@ describeWithDatabase('accounts, sessions and roles (S2)', () => {
         .expect(200, { professionals: Number(total), pendingListings: 0 });
     });
   });
+
+  // ADR-037, kept beside the SMS codes: a code read over the phone.
+  describe('codes given by an administrator', () => {
+    const person = { phone: '97 80 00 01', password: 'mot de passe oublié' };
+    let admin: string;
+    let moderator: string;
+    let professional: string;
+
+    async function staff(role: 'ADMIN' | 'MODERATOR', phone: string) {
+      const password = `mot de passe ${role.toLowerCase()} 37`;
+      await db
+        .insertInto('users')
+        .values({
+          full_name: `Équipe ${role}`,
+          phone: `+228${phone}`,
+          password_hash: await hashPassword(password),
+          role,
+        })
+        .execute();
+      return sessionCookie(
+        await http()
+          .post('/api/v1/auth/login')
+          .set('X-Forwarded-For', '203.0.113.180')
+          .send({ phone, password })
+          .expect(200),
+      );
+    }
+    const issue = (phone: string, as: string) =>
+      http()
+        .post('/api/v1/admin/password-reset-codes')
+        .set('Cookie', as)
+        .set('Origin', process.env.WEB_ORIGIN as string)
+        .send({ phone });
+    const reset = (code: string, password = 'mot de passe tout neuf') =>
+      http()
+        .post('/api/v1/auth/password-reset')
+        .set('X-Forwarded-For', '203.0.113.181')
+        .send({ phone: person.phone, code, password });
+
+    beforeAll(async () => {
+      professional = sessionCookie(
+        await http()
+          .post('/api/v1/auth/register')
+          .set('X-Forwarded-For', '203.0.113.182')
+          .send({ fullName: 'Kossi Oublieux', ...person })
+          .expect(201),
+      );
+      admin = await staff('ADMIN', '97800002');
+      moderator = await staff('MODERATOR', '97800003');
+    });
+    beforeEach(() =>
+      db.deleteFrom('auth_throttle').where('key', 'like', 'otp:%').execute(),
+    );
+
+    it('gives the administrator a code that resets the password', async () => {
+      const issued = await issue(person.phone, admin).expect(201);
+      const body = issued.body as {
+        code: string;
+        expiresAt: string;
+        fullName: string;
+      };
+      expect(body.code).toMatch(/^\d{6}$/);
+      expect(body.fullName).toBe('Kossi Oublieux');
+      // About one hour, longer than an SMS code.
+      const minutes = (Date.parse(body.expiresAt) - Date.now()) / 60_000;
+      expect(minutes).toBeGreaterThan(55);
+      expect(minutes).toBeLessThanOrEqual(60);
+
+      await reset(body.code).expect(200);
+      await http()
+        .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.183')
+        .send({ phone: person.phone, password: 'mot de passe tout neuf' })
+        .expect(200);
+      // Single use.
+      await reset(body.code, 'encore un autre').expect(400);
+    });
+
+    it('keeps only the newest code alive', async () => {
+      const first = (await issue(person.phone, admin).expect(201)).body as {
+        code: string;
+      };
+      const second = (await issue(person.phone, admin).expect(201)).body as {
+        code: string;
+      };
+      if (first.code !== second.code) await reset(first.code).expect(400);
+      await reset(second.code).expect(200);
+    });
+
+    it('is the administrator’s alone', async () => {
+      await issue(person.phone, moderator).expect(403);
+      // The resets above closed the sessions of the professional.
+      professional = sessionCookie(
+        await http()
+          .post('/api/v1/auth/login')
+          .set('X-Forwarded-For', '203.0.113.184')
+          .send({ phone: person.phone, password: 'mot de passe tout neuf' })
+          .expect(200),
+      );
+      await issue(person.phone, professional).expect(403);
+      await issue(person.phone, '').expect(401);
+      const live = await db
+        .selectFrom('otp_codes')
+        .innerJoin('users', 'users.id', 'otp_codes.user_id')
+        .select('otp_codes.id')
+        .where('users.phone', '=', '+22897800001')
+        .where('otp_codes.consumed_at', 'is', null)
+        .execute();
+      expect(live).toEqual([]);
+    });
+
+    it('serves only an active professional account', async () => {
+      await issue('97 80 00 99', admin).expect(404);
+      // Staff accounts are recovered otherwise (admin:recover).
+      await issue('97 80 00 03', admin).expect(404);
+      const invalid = await issue('12', admin).expect(400);
+      expect(invalid.body).toHaveProperty(['fields', 'phone']);
+    });
+  });
 });
