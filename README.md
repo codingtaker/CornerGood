@@ -205,7 +205,8 @@ The commune found from the position is only proposed: the person confirms or cha
 - **What is read**: only what the public may see: `public_locations`, active services, approved photos. With a position, the answer is cached `private`, not `public`.
 - **Screens**:
   - `/` (home): "Que cherchez-vous ?", activity, commune, "Autour de moi", then the categories to browse;
-  - `/recherche`: the same form and the results, 20 per page.
+  - `/recherche`: the same form and the results, 20 per page;
+  - `/recherche?…&vue=carte`: the same search on a map. It asks `/search` with the visible area (`bbox`, the best 50) each time the map stops moving, without the position or the page. A fixed place is a dot, a home its sector of about 550 m, and tapping one opens its card with "Voir la fiche". Mobile activities have no point and stay in the list. The map opens only when chosen: the tile server sees the area displayed.
 - **Position**: rounded to about 110 m in the address bar.
 - **Who asks the API**: the browser fetches the results through the `/api/v1` rewrite, so the API limits each visitor, not the web server.
 
