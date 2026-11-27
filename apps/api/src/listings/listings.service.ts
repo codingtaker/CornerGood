@@ -18,7 +18,11 @@ import type {
   PublicationStatus,
 } from '../database/database.types';
 import { TerritoryService } from '../territory/territory.service';
-import type { DraftListingInput, ListingDetailsInput } from './listing-input';
+import type {
+  DraftListingInput,
+  DraftLocationInput,
+  ListingDetailsInput,
+} from './listing-input';
 import { missingForSubmission } from './submission';
 
 /**
@@ -55,6 +59,7 @@ export interface OwnListing extends ListingSummary {
     /** Exact, for the owner only; public pages use public_locations. */
     point: { lat: number; lng: number } | null;
     accuracyM: number | null;
+    capturedAt: Date | null;
     source: PositionSource | null;
     addressHint: string | null;
     servedCommunes: { id: string; name: string }[];
@@ -72,6 +77,44 @@ export function listingSlug(name: string): string {
     .slice(0, 60);
   const suffix = randomBytes(4).readUInt32BE(0).toString(36).padStart(6, '0');
   return `${base || 'fiche'}-${suffix.slice(0, 6)}`;
+}
+
+/** The columns of a location row, the same at creation and on a change. */
+function locationColumns(location: DraftLocationInput) {
+  const point = location.point;
+  return {
+    commune_id: location.communeId,
+    location_type: location.type,
+    visibility: VISIBILITY[location.type],
+    // ST_MakePoint takes the longitude first.
+    geom: point
+      ? sql<string>`ST_SetSRID(ST_MakePoint(${point.lng}, ${point.lat}), 4326)::geography`
+      : null,
+    position_source: point ? location.source : null,
+    position_accuracy_m: point ? location.accuracyM : null,
+    position_captured_at: point
+      ? (location.capturedAt ?? sql<Date>`now()`)
+      : null,
+    address_hint: location.addressHint,
+  };
+}
+
+/** A rejected listing being corrected is a draft again (ADR-009 cycle). */
+async function logReopening(
+  trx: Transaction<Database>,
+  userId: string,
+  id: string,
+): Promise<void> {
+  await trx
+    .insertInto('moderation_log')
+    .values({
+      establishment_id: id,
+      actor_id: userId,
+      action: 'EDIT',
+      from_status: 'REJECTED',
+      to_status: 'DRAFT',
+    })
+    .execute();
 }
 
 function badField(field: string, message: string): BadRequestException {
@@ -114,26 +157,7 @@ export class ListingsService {
     const { location } = input;
 
     await this.checkCategory(this.db, input.categoryId, input.entityType);
-
-    const communeIds = [location.communeId, ...location.servedCommuneIds];
-    const known = await this.db
-      .selectFrom('communes')
-      .select('id')
-      .where('id', 'in', communeIds)
-      .execute();
-    if (new Set(known.map((row) => row.id)).size !== new Set(communeIds).size) {
-      throw badField('location.communeId', 'Commune inconnue.');
-    }
-
-    if (
-      location.point &&
-      !(await this.territory.isNearGrandLome(location.point))
-    ) {
-      throw badField(
-        'location.point',
-        'Cette position est hors du Grand Lomé. Relevez-la devant votre activité.',
-      );
-    }
+    await this.checkLocation(location);
 
     const { drafts } = await this.db
       .selectFrom('establishments')
@@ -176,40 +200,16 @@ export class ListingsService {
           .execute();
       }
 
-      const point = location.point;
       const saved = await trx
         .insertInto('locations')
         .values({
           establishment_id: listing.id,
-          commune_id: location.communeId,
-          location_type: location.type,
-          visibility: VISIBILITY[location.type],
-          // ST_MakePoint takes the longitude first.
-          geom: point
-            ? sql<string>`ST_SetSRID(ST_MakePoint(${point.lng}, ${point.lat}), 4326)::geography`
-            : null,
-          position_source: point ? location.source : null,
-          position_accuracy_m: point ? location.accuracyM : null,
-          position_captured_at: point
-            ? (location.capturedAt ?? sql<Date>`now()`)
-            : null,
-          address_hint: location.addressHint,
           is_primary: true,
+          ...locationColumns(location),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
-
-      if (location.servedCommuneIds.length > 0) {
-        await trx
-          .insertInto('location_served_communes')
-          .values(
-            location.servedCommuneIds.map((communeId) => ({
-              location_id: saved.id,
-              commune_id: communeId,
-            })),
-          )
-          .execute();
-      }
+      await this.saveServedCommunes(trx, saved.id, location);
       return listing.id;
     });
 
@@ -250,20 +250,92 @@ export class ListingsService {
         })
         .where('id', '=', id)
         .execute();
+      if (listing.status === 'REJECTED') await logReopening(trx, userId, id);
+    });
+    return this.getOwn(userId, id);
+  }
+
+  /**
+   * Replaces the place of a draft: type, commune, point, landmark, served
+   * communes. A rejected listing becomes a draft again, as for its details:
+   * a refusal for a wrong position can now be corrected.
+   */
+  async replaceLocation(
+    userId: string,
+    id: string,
+    location: DraftLocationInput,
+  ): Promise<OwnListing> {
+    // Before the lock: it reads the territory, and a refusal costs nothing.
+    await this.checkLocation(location);
+    await this.db.transaction().execute(async (trx) => {
+      const listing = await this.lockOwn(trx, userId, id);
+      if (listing.status !== 'DRAFT' && listing.status !== 'REJECTED') {
+        throw new ConflictException({
+          message:
+            'Cette fiche ne peut pas être modifiée dans son état actuel.',
+        });
+      }
+      const saved = await trx
+        .updateTable('locations')
+        .set(locationColumns(location))
+        .where('establishment_id', '=', id)
+        .where('is_primary', '=', true)
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await trx
+        .deleteFrom('location_served_communes')
+        .where('location_id', '=', saved.id)
+        .execute();
+      await this.saveServedCommunes(trx, saved.id, location);
       if (listing.status === 'REJECTED') {
         await trx
-          .insertInto('moderation_log')
-          .values({
-            establishment_id: id,
-            actor_id: userId,
-            action: 'EDIT',
-            from_status: 'REJECTED',
-            to_status: 'DRAFT',
-          })
+          .updateTable('establishments')
+          .set({ publication_status: 'DRAFT' })
+          .where('id', '=', id)
           .execute();
+        await logReopening(trx, userId, id);
       }
     });
     return this.getOwn(userId, id);
+  }
+
+  /** Communes that exist, and a point in or near Grand Lomé. */
+  private async checkLocation(location: DraftLocationInput): Promise<void> {
+    const communeIds = [location.communeId, ...location.servedCommuneIds];
+    const known = await this.db
+      .selectFrom('communes')
+      .select('id')
+      .where('id', 'in', communeIds)
+      .execute();
+    if (new Set(known.map((row) => row.id)).size !== new Set(communeIds).size) {
+      throw badField('location.communeId', 'Commune inconnue.');
+    }
+    if (
+      location.point &&
+      !(await this.territory.isNearGrandLome(location.point))
+    ) {
+      throw badField(
+        'location.point',
+        'Cette position est hors du Grand Lomé. Relevez-la devant votre activité.',
+      );
+    }
+  }
+
+  private async saveServedCommunes(
+    trx: Transaction<Database>,
+    locationId: string,
+    location: DraftLocationInput,
+  ): Promise<void> {
+    if (location.servedCommuneIds.length === 0) return;
+    await trx
+      .insertInto('location_served_communes')
+      .values(
+        location.servedCommuneIds.map((communeId) => ({
+          location_id: locationId,
+          commune_id: communeId,
+        })),
+      )
+      .execute();
   }
 
   /**
@@ -436,6 +508,7 @@ export class ListingsService {
         'locations.visibility',
         'locations.position_accuracy_m',
         'locations.position_source',
+        'locations.position_captured_at',
         'locations.address_hint',
         'communes.id as commune_id',
         'communes.name as commune_name',
@@ -493,6 +566,7 @@ export class ListingsService {
                 ? { lat: location.lat, lng: location.lng }
                 : null,
             accuracyM: location.position_accuracy_m,
+            capturedAt: location.position_captured_at,
             source: location.position_source,
             addressHint: location.address_hint,
             servedCommunes: served,

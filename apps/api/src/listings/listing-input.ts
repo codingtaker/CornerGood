@@ -121,18 +121,15 @@ export function readListingDetails(body: unknown): ListingDetailsInput {
   return details;
 }
 
-export function readDraftListing(body: unknown): DraftListingInput {
-  const raw = record(body);
-  const problems: Record<string, string> = {};
-
-  const entityType = ENTITY_TYPES.find((value) => value === raw.entityType);
-  if (!entityType) {
-    problems.entityType = 'Choisissez une activité ou un lieu communautaire.';
-  }
-
-  const details = readDetails(raw, problems);
-
-  const location = record(raw.location);
+/**
+ * The place of a listing, at its creation and when it is corrected. Errors are
+ * keyed "location.<field>", as the form shows them.
+ */
+function readLocation(
+  value: unknown,
+  problems: Record<string, string>,
+): DraftLocationInput {
+  const location = record(value);
   const type = LOCATION_TYPES.find((value) => value === location.type);
   if (!type) problems['location.type'] = 'Choisissez le type de lieu.';
 
@@ -219,19 +216,43 @@ export function readDraftListing(body: unknown): DraftListingInput {
       'Les communes desservies concernent les activités mobiles.';
   }
 
+  return {
+    type: type as LocationType,
+    communeId: communeId as string,
+    point,
+    source,
+    accuracyM,
+    capturedAt,
+    addressHint,
+    servedCommuneIds,
+  };
+}
+
+/** A new place for an existing listing: body { location }. */
+export function readListingLocation(body: unknown): DraftLocationInput {
+  const problems: Record<string, string> = {};
+  const location = readLocation(record(body).location, problems);
+  if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
+  return location;
+}
+
+export function readDraftListing(body: unknown): DraftListingInput {
+  const raw = record(body);
+  const problems: Record<string, string> = {};
+
+  const entityType = ENTITY_TYPES.find((value) => value === raw.entityType);
+  if (!entityType) {
+    problems.entityType = 'Choisissez une activité ou un lieu communautaire.';
+  }
+
+  const details = readDetails(raw, problems);
+
+  const location = readLocation(raw.location, problems);
+
   if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
   return {
     entityType: entityType as EntityType,
     ...details,
-    location: {
-      type: type as LocationType,
-      communeId: communeId as string,
-      point,
-      source,
-      accuracyM,
-      capturedAt,
-      addressHint,
-      servedCommuneIds,
-    },
+    location,
   };
 }

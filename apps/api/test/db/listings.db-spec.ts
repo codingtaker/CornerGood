@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Kysely, sql } from 'kysely';
+import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -561,6 +562,169 @@ describeWithDatabase('listing form (S3), submission (S4)', () => {
         ...details(),
         categoryId: ids['etablissement-scolaire'],
       }).expect(400);
+    });
+
+    describe('changing the place (S4)', () => {
+      // An account of its own: the drafts of this file stay under the cap.
+      let mine: string;
+      beforeAll(async () => {
+        mine = await signUp('96 10 00 03', '203.0.113.122');
+      });
+      async function own(body: object = {}): Promise<string> {
+        const response = await http()
+          .post('/api/v1/pro/listings')
+          .set('Cookie', mine)
+          .send({
+            entityType: 'BUSINESS',
+            location: location(),
+            ...details(),
+            ...body,
+          })
+          .expect(201);
+        return (response.body as { listing: { id: string } }).listing.id;
+      }
+      const move = (id: string, place: object, as = mine) =>
+        http()
+          .put(`/api/v1/pro/listings/${id}/location`)
+          .set('Cookie', as)
+          .send({ location: place });
+      const placeOf = async (id: string) => {
+        const row = await db
+          .selectFrom('locations')
+          .select((eb) => [
+            'location_type',
+            'visibility',
+            'commune_id',
+            'position_source',
+            'address_hint',
+            sql<number | null>`ST_Y(geom::geometry)`.as('lat'),
+            eb
+              .selectFrom('location_served_communes')
+              .select((inner) => inner.fn.countAll<string>().as('count'))
+              .whereRef(
+                'location_served_communes.location_id',
+                '=',
+                'locations.id',
+              )
+              .as('served'),
+          ])
+          .where('establishment_id', '=', id)
+          .where('is_primary', '=', true)
+          .execute();
+        expect(row).toHaveLength(1);
+        return { ...row[0], served: Number(row[0].served) };
+      };
+
+      it('moves the pin and changes the commune and the landmark', async () => {
+        const id = await own();
+        const moved = {
+          lat: insideAgoeNyive3.lat + 0.001,
+          lng: insideAgoeNyive3.lng,
+        };
+        const moveResponse = await move(id, {
+          type: 'FIXED',
+          communeId: ids['golfe-1'],
+          point: moved,
+          source: 'MANUAL_PIN',
+          addressHint: 'Derrière le marché',
+        }).expect(200);
+        const body: unknown = moveResponse.body;
+        expect(body).toMatchObject({
+          listing: {
+            status: 'DRAFT',
+            location: {
+              commune: { id: ids['golfe-1'] },
+              point: moved,
+              source: 'MANUAL_PIN',
+              addressHint: 'Derrière le marché',
+            },
+          },
+        });
+        expect(await placeOf(id)).toMatchObject({
+          commune_id: ids['golfe-1'],
+          lat: moved.lat,
+          served: 0,
+        });
+      });
+
+      it('turns a fixed place into a mobile activity, and back', async () => {
+        const id = await own();
+        await move(id, {
+          type: 'MOBILE',
+          communeId: ids['golfe-1'],
+          servedCommuneIds: [ids['golfe-1'], ids['golfe-2']],
+        }).expect(200);
+        expect(await placeOf(id)).toMatchObject({
+          location_type: 'MOBILE',
+          visibility: 'APPROXIMATE',
+          lat: null,
+          position_source: null,
+          served: 2,
+        });
+        await move(id, location()).expect(200);
+        expect(await placeOf(id)).toMatchObject({
+          location_type: 'FIXED',
+          visibility: 'PUBLIC',
+          served: 0,
+        });
+      });
+
+      it('keeps a home private once moved', async () => {
+        const id = await own();
+        await move(id, {
+          type: 'HOME_BASED',
+          communeId: ids['agoe-nyive-3'],
+          point: insideAgoeNyive3,
+          source: 'DEVICE_GPS',
+        }).expect(200);
+        expect(await placeOf(id)).toMatchObject({
+          location_type: 'HOME_BASED',
+          visibility: 'APPROXIMATE',
+        });
+      });
+
+      it('refuses a wrong place, and changes nothing', async () => {
+        const id = await own();
+        const before = await placeOf(id);
+        const far = await move(id, { ...location(), point: paris }).expect(400);
+        expect(far.body).toHaveProperty(['fields', 'location.point']);
+        await move(id, { ...location(), type: 'MOBILE' }).expect(400);
+        await move(id, { ...location(), communeId: randomUUID() }).expect(400);
+        await move(id, {}).expect(400);
+        expect(await placeOf(id)).toEqual(before);
+      });
+
+      it('changes nothing under review, nor on someone else’s listing', async () => {
+        const id = await own();
+        await http()
+          .post(`/api/v1/pro/listings/${id}/submit`)
+          .set('Cookie', mine)
+          .expect(200);
+        const before = await placeOf(id);
+        await move(id, { ...location(), communeId: ids['golfe-1'] }).expect(
+          409,
+        );
+        expect(await placeOf(id)).toEqual(before);
+
+        const draftOfMine = await own();
+        await move(draftOfMine, location(), otherCookie).expect(404);
+        await move(draftOfMine, location(), '').expect(401);
+      });
+
+      it('lets a listing refused for its position be corrected and sent again', async () => {
+        const id = await own();
+        await db
+          .updateTable('establishments')
+          .set({ publication_status: 'REJECTED' })
+          .where('id', '=', id)
+          .execute();
+        await move(id, { ...location(), communeId: ids['golfe-1'] }).expect(
+          200,
+        );
+        expect(await statusOf(id)).toBe('DRAFT');
+        expect((await logOf(id)).map((line) => line.action)).toEqual(['EDIT']);
+        await submit(id, mine).expect(200);
+      });
     });
 
     it('counts the listings under review in the limit of one account', async () => {
