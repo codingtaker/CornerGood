@@ -33,6 +33,11 @@ export interface ThrottlePolicies {
   mediaUser: ThrottlePolicy;
   /** Reports per address: anyone may report, without an account (ADR-017). */
   reportIp: ThrottlePolicy;
+  /**
+   * Searches per address. Generous, like loginIp: many mobile customers share
+   * one public address; the aim is only to stop a script copying the directory.
+   */
+  searchIp: ThrottlePolicy;
 }
 
 export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
@@ -87,6 +92,13 @@ export const DEFAULT_THROTTLE_POLICIES: ThrottlePolicies = {
     threshold: 5,
     baseBlockSeconds: 600,
     maxBlockSeconds: 3600,
+  },
+  // 60 searches per minute (contract §9), then a pause of 1 minute up to 10.
+  searchIp: {
+    windowSeconds: 60,
+    threshold: 60,
+    baseBlockSeconds: 60,
+    maxBlockSeconds: 600,
   },
 };
 
