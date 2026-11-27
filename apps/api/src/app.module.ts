@@ -11,6 +11,12 @@ import { ModerationController } from './moderation/moderation.controller';
 import { ModerationService } from './moderation/moderation.service';
 import { PublicListingsController } from './public/public-listings.controller';
 import { PublicListingsService } from './public/public-listings.service';
+import {
+  AdminReportsController,
+  PublicReportsController,
+  ReportThrottleGuard,
+} from './reports/reports.controller';
+import { ReportsService } from './reports/reports.service';
 import { SmsModule } from './sms/sms.module';
 import { AdminController } from './spaces/spaces.controllers';
 import { TerritoryController } from './territory/territory.controller';
@@ -36,12 +42,16 @@ import { TerritoryService } from './territory/territory.service';
     AdminController,
     ModerationController,
     PublicListingsController,
+    PublicReportsController,
+    AdminReportsController,
   ],
   providers: [
     TerritoryService,
     ListingsService,
     ModerationService,
     PublicListingsService,
+    ReportsService,
+    ReportThrottleGuard,
   ],
 })
 export class AppModule {}

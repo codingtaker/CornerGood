@@ -11,6 +11,7 @@ import {
 } from "@/lib/contact-links";
 import { formatDate, type PublicListing } from "@/lib/listings";
 import { PlaceMapLoader } from "./place-map-loader";
+import { ReportForm } from "./report-form";
 
 /**
  * The listing as anyone sees it (contract §4.2), the address shared on
@@ -185,6 +186,7 @@ export default async function PublicListingPage({
       <p className="text-sm opacity-60">
         Mise à jour le {formatDate(listing.updatedAt)}
       </p>
+      <ReportForm slug={listing.slug} />
     </main>
   );
 }

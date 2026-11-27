@@ -155,6 +155,22 @@ The commune found from the position is only proposed: the person confirms or cha
 - 60 seconds of cache (ADR-022): a suspended listing disappears quickly. This replaces the API's `no-store` on these two routes only.
 - The web page is `/fiches/:slug`, the address to share: "Appeler" (`tel:`), "WhatsApp" (`wa.me`, with a first message), a map with the pin or the sector, "Itinéraire" for a fixed place. The owner reaches it from `/pro/fiches/:id` once published, the back-office from `/admin/fiches/:id`.
 
+## Reports
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `POST /listings/:slug/reports` | public, 5 per hour per address | Body `reason` (`WRONG_INFO`, `CLOSED`, `WRONG_LOCATION`, `DUPLICATE`, `INAPPROPRIATE`, `OTHER`), `description` (1 to 1000 characters), `reporterContact?` (120 at most). `201 { id }`; `404` unless the listing is published |
+| `GET /admin/reports?status=` | moderator, administrator | Open reports first, then in review, then closed |
+| `GET /admin/reports/:id` | moderator, administrator | The report with the private contact, and the listing it is about |
+| `POST /admin/reports/:id/take` | moderator, administrator | `OPEN` → `IN_REVIEW`, assigned to the caller |
+| `POST /admin/reports/:id/resolve`, `…/dismiss` | moderator, administrator | → `RESOLVED` or `DISMISSED`; body `note` (1 to 1000 characters), else `422 NOTE_REQUIRED` |
+
+- Anyone may report, without an account (ADR-017). The contact is optional and never public.
+- A report on a `VERIFIED` listing makes it `VERIFICATION_PENDING` in the same transaction (ADR-018).
+- Handling a report never changes the listing: a correction or a suspension goes through its own action.
+- Every change of a report is made under a row lock: a second take or close answers `409 INVALID_STATE`. Migration 0009 adds `resolution_note`, required to close a report, and requires a handler once it is taken.
+- Screens: "Signaler une erreur sur cette fiche" on `/fiches/:slug`; `/admin/signalements` (filters by status) and `/admin/signalements/:id` ("Prendre en charge", "Résolu", "Classé").
+
 ## Useful commands
 
 | Command | Effect |
