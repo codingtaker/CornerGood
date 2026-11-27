@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const listing: OwnListing = {
   id: "l1",
   name: "Atelier Afi",
+  slug: "atelier-afi-4f9k2a",
   status: "DRAFT",
   entityType: "BUSINESS",
   category: { id: "cat", name: "Réparation" },

@@ -65,6 +65,22 @@ export default async function OwnListingPage({
         <p className="opacity-80">{listing.category.name}</p>
       </div>
 
+      {listing.status === "PUBLISHED" && (
+        <p
+          role="status"
+          className="rounded-md bg-green-50 px-3 py-2 text-green-900"
+        >
+          Votre fiche est publiée.{" "}
+          <Link
+            href={`/fiches/${listing.slug}`}
+            className="font-semibold underline"
+          >
+            Voir la page publique
+          </Link>
+          , à partager avec vos clients.
+        </p>
+      )}
+
       {listing.status === "PENDING" && (
         <p
           role="status"
