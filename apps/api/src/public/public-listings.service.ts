@@ -7,6 +7,9 @@ import type {
   LocationType,
   VerificationStatus,
 } from '../database/database.types';
+import { loadServices } from '../listings/listings.service';
+import type { ListedService } from '../listings/listings.service';
+import type { OpeningHours } from '../listings/opening-hours';
 import { MEDIA_STORAGE } from '../media/media-storage';
 import type { MediaStorage } from '../media/media-storage';
 
@@ -19,6 +22,9 @@ export interface PublicListing {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  openingHours: OpeningHours | null;
+  services: ListedService[];
   verificationStatus: VerificationStatus;
   publishedAt: Date | null;
   updatedAt: Date;
@@ -71,6 +77,8 @@ export class PublicListingsService {
         'establishments.description',
         'establishments.phone',
         'establishments.whatsapp',
+        'establishments.email',
+        'establishments.opening_hours',
         'establishments.verification_status',
         'establishments.published_at',
         'establishments.updated_at',
@@ -132,6 +140,9 @@ export class PublicListingsService {
       description: listing.description,
       phone: listing.phone,
       whatsapp: listing.whatsapp,
+      email: listing.email,
+      openingHours: (listing.opening_hours as OpeningHours | null) ?? null,
+      services: await loadServices(this.db, listing.id),
       verificationStatus: listing.verification_status,
       publishedAt: listing.published_at,
       updatedAt: listing.updated_at,

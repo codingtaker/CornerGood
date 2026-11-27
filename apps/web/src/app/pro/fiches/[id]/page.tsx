@@ -4,13 +4,16 @@ import { notFound, redirect } from "next/navigation";
 import {
   LOCATION_LABELS,
   STATUS_LABELS,
+  type CatalogueService,
   type Category,
   type Commune,
   type OwnListing,
   type OwnPhoto,
 } from "@/lib/listings";
 import { apiFetch, getCurrentUser } from "@/lib/session";
+import { OpeningHoursTable, ServicesList } from "../../../listing-extras";
 import { DetailsForm } from "./details-form";
+import { ServicesEditor } from "./services-editor";
 import { LocationEditor } from "./location-editor";
 import { PhotoSection } from "./photo-section";
 
@@ -54,6 +57,17 @@ export default async function OwnListingPage({
   const { communes } = communesResponse?.ok
     ? ((await communesResponse.json()) as { communes: Commune[] })
     : { communes: [] };
+  // The catalogue of the listing's category, to tick its services.
+  const categorySlug = categories.find(
+    (c) => c.id === listing.category.id,
+  )?.slug;
+  const servicesResponse =
+    editable && categorySlug
+      ? await apiFetch(`/services?category=${encodeURIComponent(categorySlug)}`)
+      : null;
+  const { services: catalogue } = servicesResponse?.ok
+    ? ((await servicesResponse.json()) as { services: CatalogueService[] })
+    : { services: [] };
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 py-8">
@@ -165,7 +179,14 @@ export default async function OwnListingPage({
       )}
 
       {editable ? (
-        <DetailsForm listing={listing} categories={categories} />
+        <>
+          <ServicesEditor
+            listingId={listing.id}
+            catalogue={catalogue}
+            initial={listing.services}
+          />
+          <DetailsForm listing={listing} categories={categories} />
+        </>
       ) : (
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-semibold">Informations</h2>
@@ -174,6 +195,13 @@ export default async function OwnListingPage({
           )}
           {listing.phone && <p>Téléphone : {listing.phone}</p>}
           {listing.whatsapp && <p>WhatsApp : {listing.whatsapp}</p>}
+          {listing.email && <p>E-mail : {listing.email}</p>}
+          {listing.services.length > 0 && (
+            <ServicesList services={listing.services} />
+          )}
+          {listing.openingHours && (
+            <OpeningHoursTable hours={listing.openingHours} />
+          )}
         </section>
       )}
       <Link href="/pro" className="text-accent underline">

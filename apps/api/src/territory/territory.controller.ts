@@ -43,6 +43,17 @@ export class TerritoryController {
       : { commune: null, method: null };
   }
 
+  /** GET /services?category=reparation: what a listing of it may offer. */
+  @Get('services')
+  async services(@Query('category') category: unknown) {
+    if (typeof category !== 'string' || !/^[a-z0-9-]{1,80}$/.test(category)) {
+      throw new BadRequestException({
+        message: 'Indiquez la catégorie : ?category=reparation.',
+      });
+    }
+    return { services: await this.territory.services(category) };
+  }
+
   @Get('categories')
   async categories(@Query('entityType') type: unknown) {
     const entityType: EntityType | undefined =

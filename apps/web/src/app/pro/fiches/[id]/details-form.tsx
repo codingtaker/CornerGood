@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { Category, OwnListing } from "@/lib/listings";
+import { HoursEditor, hoursState, openingHours } from "./hours-editor";
 
 const field = "rounded-md border border-foreground/30 px-3 py-2 text-base";
 
@@ -23,6 +24,7 @@ export function DetailsForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [hours, setHours] = useState(() => hoursState(listing.openingHours));
   const url = `/api/v1/pro/listings/${listing.id}`;
 
   /** True when the API accepted; otherwise shows why. */
@@ -57,6 +59,8 @@ export function DetailsForm({
             description: text("description"),
             phone: text("phone"),
             whatsapp: text("whatsapp"),
+            email: text("email"),
+            openingHours: openingHours(hours),
           }),
         })) &&
         (action === "save" ||
@@ -152,6 +156,28 @@ export function DetailsForm({
           />
           {error("whatsapp")}
         </label>
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className="font-medium">E-mail (facultatif)</span>
+        <input
+          name="email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          defaultValue={listing.email ?? ""}
+          className={field}
+        />
+        {error("email")}
+      </label>
+      <div>
+        <HoursEditor
+          value={hours}
+          onChange={(next) => {
+            setHours(next);
+            setSaved(false);
+          }}
+        />
+        {error("openingHours")}
       </div>
       {error("location")}
 

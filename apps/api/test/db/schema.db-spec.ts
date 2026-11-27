@@ -273,7 +273,12 @@ describeWithDatabase('database schema', () => {
     });
 
     it('recreates a missing category when seeded again', async () => {
-      // No test establishment uses this category, so it can be deleted.
+      // No test establishment uses this category, so it can be deleted once
+      // its services are gone (ON DELETE RESTRICT).
+      await db
+        .deleteFrom('services')
+        .where('slug', 'like', 'bibliotheque-%')
+        .execute();
       await db
         .deleteFrom('categories')
         .where('slug', '=', 'bibliotheque')
@@ -287,6 +292,13 @@ describeWithDatabase('database schema', () => {
         .where('slug', '=', 'bibliotheque')
         .executeTakeFirst();
       expect(restored).toEqual({ name: 'Bibliothèque' });
+      const services = await db
+        .selectFrom('services')
+        .innerJoin('categories', 'categories.id', 'services.category_id')
+        .select('services.slug')
+        .where('categories.slug', '=', 'bibliotheque')
+        .execute();
+      expect(services).toHaveLength(4);
     });
   });
 

@@ -22,6 +22,9 @@ const listing: OwnListing = {
   description: null,
   phone: null,
   whatsapp: null,
+  email: null,
+  openingHours: null,
+  services: [],
   rejection: null,
   location: null,
 };
@@ -72,6 +75,23 @@ describe("DetailsForm", () => {
       name: "Atelier Afi",
       categoryId: "cat",
       description: "Réparation de téléphones",
+    });
+  });
+
+  it("saves the email and the opening hours with the rest", async () => {
+    fetchMock.mockImplementation(() => answer(200));
+    fireEvent.change(screen.getByLabelText("E-mail (facultatif)"), {
+      target: { value: "atelier@exemple.tg" },
+    });
+    fireEvent.change(screen.getByLabelText("Samedi : ouverture"), {
+      target: { value: "closed" },
+    });
+    click("Enregistrer");
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      email: "atelier@exemple.tg",
+      openingHours: { sat: [] },
     });
   });
 

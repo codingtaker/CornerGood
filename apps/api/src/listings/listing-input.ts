@@ -5,6 +5,8 @@ import type {
   PositionSource,
 } from '../database/database.types';
 import type { Point } from '../territory/territory.service';
+import { readOpeningHours } from './opening-hours';
+import type { OpeningHours } from './opening-hours';
 
 /*
  * What the listing form sends (S3). Messages are product text, in French.
@@ -21,6 +23,11 @@ const LOCATION_TYPES: readonly LocationType[] = [
   'HOME_BASED',
 ];
 const SOURCES: readonly PositionSource[] = ['DEVICE_GPS', 'MANUAL_PIN'];
+/** A plain check: one @, a dot in the domain, no spaces. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Services one listing may tick, and the length of their details. */
+export const MAX_SERVICES_PER_LISTING = 15;
+export const MAX_SERVICE_DETAILS_LENGTH = 300;
 
 /** Latitude and longitude in degrees, from numbers or query strings. */
 export function readPoint(raw: { lat: unknown; lng: unknown }): Point | null {
@@ -56,6 +63,8 @@ export interface ListingDetailsInput {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  openingHours: OpeningHours | null;
 }
 
 export interface DraftListingInput extends ListingDetailsInput {
@@ -104,12 +113,27 @@ function readDetails(
   };
   const phone = readOptionalPhone('phone');
   const whatsapp = readOptionalPhone('whatsapp');
+
+  const email = optionalText(raw.email)?.toLowerCase() ?? null;
+  if (email && (email.length > 254 || !EMAIL.test(email))) {
+    problems.email = 'Adresse e-mail invalide. Exemple : nom@exemple.tg.';
+  }
+
+  let openingHours: OpeningHours | null = null;
+  try {
+    openingHours = readOpeningHours(raw.openingHours);
+  } catch (error) {
+    problems.openingHours = (error as Error).message;
+  }
+
   return {
     categoryId: categoryId as string,
     name,
     description,
     phone,
     whatsapp,
+    email,
+    openingHours,
   };
 }
 
@@ -255,4 +279,44 @@ export function readDraftListing(body: unknown): DraftListingInput {
     ...details,
     location,
   };
+}
+
+export interface ListingServiceInput {
+  serviceId: string;
+  /** What the listing adds to the catalogue's name (ADR-006, ADR-024). */
+  details: string | null;
+}
+
+/** The whole list of services of a listing: body { services }. */
+export function readListingServices(body: unknown): ListingServiceInput[] {
+  const raw = record(body).services;
+  const problems: Record<string, string> = {};
+  if (!Array.isArray(raw)) {
+    throw new InvalidInputError({ services: 'Liste de services attendue.' });
+  }
+  if (raw.length > MAX_SERVICES_PER_LISTING) {
+    problems.services = `Choisissez au plus ${MAX_SERVICES_PER_LISTING} services.`;
+  }
+  const seen = new Set<string>();
+  const services: ListingServiceInput[] = [];
+  raw.forEach((item, index) => {
+    const entry = record(item);
+    const serviceId =
+      typeof entry.serviceId === 'string' && UUID.test(entry.serviceId)
+        ? entry.serviceId
+        : null;
+    if (!serviceId || seen.has(serviceId)) {
+      problems[`services.${index}`] = 'Service invalide ou en double.';
+      return;
+    }
+    seen.add(serviceId);
+    const details = optionalText(entry.details);
+    if (details && details.length > MAX_SERVICE_DETAILS_LENGTH) {
+      problems[`services.${index}`] =
+        `Les précisions comptent au plus ${MAX_SERVICE_DETAILS_LENGTH} caractères.`;
+    }
+    services.push({ serviceId, details });
+  });
+  if (Object.keys(problems).length > 0) throw new InvalidInputError(problems);
+  return services;
 }

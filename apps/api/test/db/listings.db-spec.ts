@@ -727,6 +727,267 @@ describeWithDatabase('listing form (S3), submission (S4)', () => {
       });
     });
 
+    describe('services, opening hours and email', () => {
+      let account: string;
+      const catalogue: Record<string, string> = {};
+      beforeAll(async () => {
+        account = await signUp('96 10 00 04', '203.0.113.123');
+        const rows = await db
+          .selectFrom('services')
+          .select(['id', 'slug'])
+          .where('slug', 'in', [
+            'reparation-ecran-telephone',
+            'reparation-moto',
+            'reparation-plomberie',
+            'artisanat-couture',
+          ])
+          .execute();
+        for (const row of rows) catalogue[row.slug] = row.id;
+      });
+      async function own(): Promise<string> {
+        const response = await http()
+          .post('/api/v1/pro/listings')
+          .set('Cookie', account)
+          .send({
+            entityType: 'BUSINESS',
+            location: location(),
+            ...details(),
+          })
+          .expect(201);
+        return (response.body as { listing: { id: string } }).listing.id;
+      }
+      const tick = (id: string, services: object[], as = account) =>
+        http()
+          .put(`/api/v1/pro/listings/${id}/services`)
+          .set('Cookie', as)
+          .send({ services });
+      const servicesOf = async (id: string) =>
+        (
+          await db
+            .selectFrom('establishment_services')
+            .select(['service_id', 'details'])
+            .where('establishment_id', '=', id)
+            .orderBy('service_id')
+            .execute()
+        ).map((row) => row.service_id);
+      const hours = {
+        mon: [
+          ['08:00', '12:00'],
+          ['14:00', '18:00'],
+        ],
+        sat: [['09:00', '13:00']],
+        sun: [],
+      };
+
+      it('lists the catalogue of one category', async () => {
+        const response = await http()
+          .get('/api/v1/services?category=reparation')
+          .expect(200);
+        const services = (
+          response.body as { services: { slug: string; name: string }[] }
+        ).services;
+        expect(services.map((s) => s.slug)).toContain(
+          'reparation-ecran-telephone',
+        );
+        expect(services.map((s) => s.slug)).not.toContain('artisanat-couture');
+        await db
+          .updateTable('services')
+          .set({ is_active: false })
+          .where('slug', '=', 'reparation-plomberie')
+          .execute();
+        try {
+          const again = await http()
+            .get('/api/v1/services?category=reparation')
+            .expect(200);
+          expect(JSON.stringify(again.body)).not.toContain('plomberie');
+        } finally {
+          await db
+            .updateTable('services')
+            .set({ is_active: true })
+            .where('slug', '=', 'reparation-plomberie')
+            .execute();
+        }
+        await http().get('/api/v1/services').expect(400);
+      });
+
+      it('keeps the email and the opening hours of a draft', async () => {
+        const id = await own();
+        const saved = await patch(
+          id,
+          {
+            ...details(),
+            email: ' Atelier.Afi@Exemple.TG ',
+            openingHours: hours,
+          },
+          account,
+        ).expect(200);
+        const body: unknown = saved.body;
+        expect(body).toMatchObject({
+          listing: { email: 'atelier.afi@exemple.tg', openingHours: hours },
+        });
+        // A field left empty is erased.
+        const erased = await patch(id, details(), account).expect(200);
+        expect(erased.body).toMatchObject({
+          listing: { email: null, openingHours: null },
+        });
+      });
+
+      it('explains a wrong email or wrong hours', async () => {
+        const id = await own();
+        const refused = await patch(
+          id,
+          {
+            ...details(),
+            email: 'pas-une-adresse',
+            openingHours: { mon: [['18:00', '08:00']] },
+          },
+          account,
+        ).expect(400);
+        expect(refused.body).toHaveProperty(['fields', 'email']);
+        expect(refused.body).toHaveProperty(['fields', 'openingHours']);
+      });
+
+      it('ticks services of its category, with their details', async () => {
+        const id = await own();
+        const ticked = await tick(id, [
+          {
+            serviceId: catalogue['reparation-moto'],
+            details: 'Motos Haojue et Sanili',
+          },
+          { serviceId: catalogue['reparation-ecran-telephone'] },
+        ]).expect(200);
+        expect(ticked.body).toMatchObject({
+          listing: {
+            // In the catalogue's order of names.
+            services: [
+              {
+                id: catalogue['reparation-moto'],
+                name: 'Mécanique moto',
+                details: 'Motos Haojue et Sanili',
+              },
+              { id: catalogue['reparation-ecran-telephone'], details: null },
+            ],
+          },
+        });
+        // Replaced as a whole.
+        await tick(id, []).expect(200);
+        expect(await servicesOf(id)).toEqual([]);
+      });
+
+      it('refuses a service of another category, twice the same, or inactive', async () => {
+        const id = await own();
+        await tick(id, [{ serviceId: catalogue['reparation-moto'] }]).expect(
+          200,
+        );
+        const before = await servicesOf(id);
+
+        const other = await tick(id, [
+          { serviceId: catalogue['artisanat-couture'] },
+        ]).expect(400);
+        expect(other.body).toHaveProperty(['fields', 'services']);
+        await tick(id, [
+          { serviceId: catalogue['reparation-moto'] },
+          { serviceId: catalogue['reparation-moto'] },
+        ]).expect(400);
+        await tick(id, [{ serviceId: randomUUID() }]).expect(400);
+        await db
+          .updateTable('services')
+          .set({ is_active: false })
+          .where('slug', '=', 'reparation-plomberie')
+          .execute();
+        try {
+          await tick(id, [
+            { serviceId: catalogue['reparation-plomberie'] },
+          ]).expect(400);
+        } finally {
+          await db
+            .updateTable('services')
+            .set({ is_active: true })
+            .where('slug', '=', 'reparation-plomberie')
+            .execute();
+        }
+        expect(await servicesOf(id)).toEqual(before);
+      });
+
+      it('drops the services of the old category when the category changes', async () => {
+        const id = await own();
+        await tick(id, [{ serviceId: catalogue['reparation-moto'] }]).expect(
+          200,
+        );
+        const artisanat = await db
+          .selectFrom('categories')
+          .select('id')
+          .where('slug', '=', 'artisanat')
+          .executeTakeFirstOrThrow();
+        await patch(
+          id,
+          { ...details(), categoryId: artisanat.id },
+          account,
+        ).expect(200);
+        expect(await servicesOf(id)).toEqual([]);
+        // Kept when the category stays the same.
+        await tick(id, [{ serviceId: catalogue['artisanat-couture'] }]).expect(
+          200,
+        );
+        await patch(
+          id,
+          { ...details(), categoryId: artisanat.id },
+          account,
+        ).expect(200);
+        expect(await servicesOf(id)).toEqual([catalogue['artisanat-couture']]);
+      });
+
+      it('changes nothing under review nor on someone else’s listing, and reopens a rejected one', async () => {
+        const id = await own();
+        await tick(id, [{ serviceId: catalogue['reparation-moto'] }]).expect(
+          200,
+        );
+        await tick(id, [], otherCookie).expect(404);
+        await tick(id, [], '').expect(401);
+        await submit(id, account).expect(200);
+        await tick(id, []).expect(409);
+        expect(await servicesOf(id)).toEqual([catalogue['reparation-moto']]);
+
+        await db
+          .updateTable('establishments')
+          .set({ publication_status: 'REJECTED' })
+          .where('id', '=', id)
+          .execute();
+        await tick(id, []).expect(200);
+        expect(await statusOf(id)).toBe('DRAFT');
+        expect((await logOf(id)).map((line) => line.action)).toEqual([
+          'SUBMIT',
+          'EDIT',
+        ]);
+      });
+
+      it('shows them on the public page once published', async () => {
+        const id = await own();
+        await patch(
+          id,
+          { ...details(), email: 'atelier@exemple.tg', openingHours: hours },
+          account,
+        ).expect(200);
+        await tick(id, [
+          { serviceId: catalogue['reparation-moto'], details: 'Pièces neuves' },
+        ]).expect(200);
+        const { slug } = await db
+          .updateTable('establishments')
+          .set({ publication_status: 'PUBLISHED', published_at: new Date() })
+          .where('id', '=', id)
+          .returning('slug')
+          .executeTakeFirstOrThrow();
+        const page = await http().get(`/api/v1/listings/${slug}`).expect(200);
+        expect(page.body).toMatchObject({
+          listing: {
+            email: 'atelier@exemple.tg',
+            openingHours: hours,
+            services: [{ name: 'Mécanique moto', details: 'Pièces neuves' }],
+          },
+        });
+      });
+    });
+
     it('counts the listings under review in the limit of one account', async () => {
       await sql`UPDATE establishments SET publication_status = 'PENDING',
         description = 'x', phone = '+22890000000'

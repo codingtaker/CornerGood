@@ -97,6 +97,19 @@ export class TerritoryService {
   }
 
   /** Active categories, in display order, optionally for one kind of listing. */
+  /** Active services of one active category (ADR-006), by name. */
+  async services(categorySlug: string) {
+    return this.db
+      .selectFrom('services')
+      .innerJoin('categories', 'categories.id', 'services.category_id')
+      .select(['services.id', 'services.slug', 'services.name'])
+      .where('categories.slug', '=', categorySlug)
+      .where('categories.is_active', '=', true)
+      .where('services.is_active', '=', true)
+      .orderBy('services.name')
+      .execute();
+  }
+
   async categories(entityType?: EntityType) {
     let query = this.db
       .selectFrom('categories')
