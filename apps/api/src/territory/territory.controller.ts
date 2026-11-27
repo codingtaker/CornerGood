@@ -44,7 +44,7 @@ export class TerritoryController {
   }
 
   @Get('categories')
-  async categories(@Query('type') type: unknown) {
+  async categories(@Query('entityType') type: unknown) {
     const entityType: EntityType | undefined =
       type === 'BUSINESS' || type === 'COMMUNITY' ? type : undefined;
     return { categories: await this.territory.categories(entityType) };

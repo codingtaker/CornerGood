@@ -15,6 +15,8 @@ import type { SmsSender } from '../sms/sms.module';
 
 export const OTP_TTL_MINUTES = 10;
 export const OTP_MAX_ATTEMPTS = 5;
+/** A code read by an administrator over the phone (ADR-037) lasts longer. */
+export const ADMIN_CODE_TTL_MINUTES = 60;
 
 const PURPOSE_TEXT: Record<OtpPurpose, string> = {
   LOGIN_UNLOCK: 'pour débloquer votre connexion',
@@ -59,27 +61,63 @@ export class OtpService {
       .executeTakeFirst();
     if (!user) return;
 
+    const { code } = await this.store(user.id, purpose, OTP_TTL_MINUTES);
+    await this.sms.send(phone, otpMessage(code, purpose));
+  }
+
+  /**
+   * A PASSWORD_RESET code for a professional who cannot receive the SMS
+   * (ADR-037): an administrator reads it to them over the phone, once they
+   * have checked who is calling. Null when no active professional account
+   * has this number. Staff accounts are recovered otherwise (admin:recover).
+   */
+  async issueForAdmin(
+    phone: string,
+  ): Promise<{ code: string; expiresAt: Date; fullName: string } | null> {
+    const user = await this.db
+      .selectFrom('users')
+      .select(['id', 'full_name'])
+      .where('phone', '=', phone)
+      .where('is_active', '=', true)
+      .where('role', '=', 'PROFESSIONAL')
+      .executeTakeFirst();
+    if (!user) return null;
+    const stored = await this.store(
+      user.id,
+      'PASSWORD_RESET',
+      ADMIN_CODE_TTL_MINUTES,
+    );
+    return { ...stored, fullName: user.full_name };
+  }
+
+  /** A new code, which replaces the live one of the same purpose. */
+  private async store(
+    userId: string,
+    purpose: OtpPurpose,
+    ttlMinutes: number,
+  ): Promise<{ code: string; expiresAt: Date }> {
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
-    await this.db.transaction().execute(async (trx) => {
+    return this.db.transaction().execute(async (trx) => {
       // The previous live code of this purpose stops working.
       await trx
         .updateTable('otp_codes')
         .set({ consumed_at: sql<Date>`now()` })
-        .where('user_id', '=', user.id)
+        .where('user_id', '=', userId)
         .where('purpose', '=', purpose)
         .where('consumed_at', 'is', null)
         .execute();
-      await trx
+      const row = await trx
         .insertInto('otp_codes')
         .values({
-          user_id: user.id,
+          user_id: userId,
           purpose,
           code_hash: this.hash(code),
-          expires_at: sql<Date>`now() + ${`${OTP_TTL_MINUTES} minutes`}::interval`,
+          expires_at: sql<Date>`now() + ${`${ttlMinutes} minutes`}::interval`,
         })
-        .execute();
+        .returning('expires_at')
+        .executeTakeFirstOrThrow();
+      return { code, expiresAt: row.expires_at };
     });
-    await this.sms.send(phone, otpMessage(code, purpose));
   }
 
   /** Codes expired for a day are of no use, even as a trace. */

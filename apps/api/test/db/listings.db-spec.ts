@@ -156,7 +156,7 @@ describeWithDatabase('listing form (S3), submission (S4)', () => {
 
     it('lists the categories of one kind of listing', async () => {
       const response = await http()
-        .get('/api/v1/categories?type=COMMUNITY')
+        .get('/api/v1/categories?entityType=COMMUNITY')
         .expect(200);
       const categories = (
         response.body as { categories: { applicableTo: string | null }[] }

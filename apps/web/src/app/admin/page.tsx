@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ADMIN_ROLES, apiFetch, getCurrentUser } from "@/lib/session";
 import { SignOutButton } from "../sign-out-button";
 import { AccessDenied } from "./access-denied";
+import { ResetCodeForm } from "./reset-code-form";
 
 export const metadata: Metadata = { title: "Modération · CornerGood" };
 
@@ -49,6 +50,8 @@ export default async function AdminPage() {
       >
         Examiner les fiches en attente
       </Link>
+      {/* The API refuses the code to a moderator too (403). */}
+      {user.role === "ADMIN" && <ResetCodeForm />}
     </main>
   );
 }

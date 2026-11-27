@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AccountDeletionService } from './account-deletion.service';
 import { AuthController } from './auth.controller';
+import { ResetCodeController } from './reset-code.controller';
 import { RolesGuard, SessionGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { MaintenanceService } from './maintenance.service';
@@ -10,7 +11,7 @@ import { DEFAULT_THROTTLE_POLICIES, THROTTLE_POLICIES } from './throttle';
 import { ThrottleService } from './throttle.service';
 
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, ResetCodeController],
   providers: [
     AuthService,
     SessionService,

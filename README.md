@@ -81,6 +81,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
   - `PASSWORD_RESET`: `POST /auth/password-reset` with the code sets a new password, closes every other session and signs in.
 
   A code is valid 10 minutes, for 5 tries, once; a new code replaces the previous one. Only an HMAC of the code is stored, keyed with `OTP_SECRET`. The answer to `/auth/otp` is the same whether the number has an account or not, and does not wait for the SMS. Requests are limited, since every SMS costs money: one per number, then 1, 2, 4… minutes before the next, up to 1 h; 10 per address and per hour. Wrong codes are counted per address too.
+- **Code given by an administrator** (ADR-037, beside the SMS). For a professional who cannot receive the SMS, the administrator checks who is calling, then creates a `PASSWORD_RESET` code with `POST /admin/password-reset-codes` (body `phone`, administrator only) or from `/admin`. The code is shown once and is valid 1 hour; the person enters it on `/mot-de-passe-oublie` ("J'ai déjà un code"). Only active professional accounts are served: staff accounts use `admin:recover`. The API logs who issued a code for which number, never the code.
 - **`SMS_PROVIDER`** chooses who sends the SMS (`apps/api/src/sms/sms.module.ts`). Only `console` exists for now: it writes the SMS, code included, in the API logs, and the API refuses to start with it in production. The real provider is still to be chosen; adding one means a class implementing `SmsSender` and its name in `SMS_PROVIDERS`.
 - **`TRUST_PROXY`** names the proxies allowed to give the visitor's address (`X-Forwarded-For`): `loopback` by default, for the web app on the same machine. In production it must list **every** proxy in front of the API (the web app's server and any load balancer, as addresses or subnets); otherwise all visitors share the proxy's address and one person could block everyone. `true` is refused, since anyone could then forge their address.
 - The browser calls the API through the web app (`/api/v1/*` is forwarded to `API_URL`, see `apps/web/next.config.ts`), so the cookie belongs to the web app's own origin. The web app's `proxy.ts` sends visitors without a cookie from `/pro` and `/admin` to `/connexion`; the pages then ask the API who is signed in. The API decides access in every case.
@@ -91,7 +92,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 |---|---|---|
 | `GET /communes` | public | The 13 communes, to choose one from a list (ADR-044) |
 | `GET /communes/locate?lat=&lng=` | public, not cached | The commune whose official boundary covers the point (`inside`); else the nearest within 50 m, for a GPS fix just outside Grand Lomé (`nearby`); else `null` |
-| `GET /categories?type=BUSINESS\|COMMUNITY` | public | Active categories of one kind of listing |
+| `GET /categories?entityType=BUSINESS\|COMMUNITY` | public | Active categories of one kind of listing |
 
 A listing is created as a **draft** from `/pro/fiches/nouvelle`, in three ways:
 

@@ -44,7 +44,7 @@ export default async function OwnListingPage({
 
   const [categoriesResponse, communesResponse] = editable
     ? await Promise.all([
-        apiFetch(`/categories?type=${listing.entityType}`),
+        apiFetch(`/categories?entityType=${listing.entityType}`),
         apiFetch("/communes"),
       ])
     : [null, null];
