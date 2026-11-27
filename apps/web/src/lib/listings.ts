@@ -28,6 +28,9 @@ export interface OwnListing {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  openingHours: OpeningHours | null;
+  services: ListedService[];
   /** Why the listing was refused, until it is sent again. */
   rejection: { reason: string; at: string } | null;
   location: {
@@ -143,6 +146,9 @@ export interface PublicListing {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  openingHours: OpeningHours | null;
+  services: ListedService[];
   verificationStatus: string;
   publishedAt: string | null;
   updatedAt: string;
@@ -156,4 +162,33 @@ export interface PublicListing {
     servedCommunes: { slug: string; name: string }[];
   } | null;
   photos: { id: string; isCover: boolean }[];
+}
+
+/** Days of the opening hours, Monday first. */
+export const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type Day = (typeof DAYS)[number];
+export const DAY_LABELS: Record<Day, string> = {
+  mon: "Lundi",
+  tue: "Mardi",
+  wed: "Mercredi",
+  thu: "Jeudi",
+  fri: "Vendredi",
+  sat: "Samedi",
+  sun: "Dimanche",
+};
+/** For each day: closed (empty) or one or two ["HH:MM", "HH:MM"] ranges. */
+export type OpeningHours = Partial<Record<Day, [string, string][]>>;
+
+/** A service of the catalogue (ADR-006). */
+export interface CatalogueService {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/** A service ticked by a listing, with what it adds. */
+export interface ListedService {
+  id: string;
+  name: string;
+  details: string | null;
 }

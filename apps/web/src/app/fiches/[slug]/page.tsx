@@ -11,6 +11,7 @@ import {
 } from "@/lib/contact-links";
 import { formatDate, type PublicListing } from "@/lib/listings";
 import { PlaceMapLoader } from "./place-map-loader";
+import { OpeningHoursTable, ServicesList } from "../../listing-extras";
 import { ReportForm } from "./report-form";
 
 /**
@@ -119,8 +120,31 @@ export default async function PublicListingPage({
         </div>
       )}
 
+      {listing.email && (
+        <a
+          href={`mailto:${listing.email}`}
+          className="self-start text-accent underline"
+        >
+          {listing.email}
+        </a>
+      )}
+
       {listing.description && (
         <p className="whitespace-pre-line">{listing.description}</p>
+      )}
+
+      {listing.services.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Services</h2>
+          <ServicesList services={listing.services} />
+        </section>
+      )}
+
+      {listing.openingHours && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Horaires</h2>
+          <OpeningHoursTable hours={listing.openingHours} />
+        </section>
       )}
 
       {location && (

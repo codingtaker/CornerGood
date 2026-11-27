@@ -57,7 +57,8 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `DELETE /auth/me` | session + password | Deletes the account: personal data erased (see below) |
 | `GET /pro/listings`, `GET /pro/listings/:id` | session | The professional's own listings; the exact point is shown to the owner only (404 for anyone else) |
 | `POST /pro/listings` | session | Creates a draft listing with its location (see *Listings* below) |
-| `PATCH /pro/listings/:id` | owner | Replaces name, category, description, phone and WhatsApp of a draft; a rejected listing becomes a draft again (`409` in any other status) |
+| `PATCH /pro/listings/:id` | owner | Replaces name, category, description, phone, WhatsApp, email and opening hours of a draft; a rejected listing becomes a draft again (`409` in any other status) |
+| `PUT /pro/listings/:id/services` | owner | Replaces the services of a draft (see *Services, opening hours and email* below) |
 | `PUT /pro/listings/:id/location` | owner | Replaces the place of a draft (body `{ location }`, the same as at creation, same checks): type, commune, point, landmark, served communes; a rejected listing becomes a draft again (`409` in any other status) |
 | `POST /pro/listings/:id/submit` | owner | `DRAFT` → `PENDING` (see *Submission* below) |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional (see *Back-office* below) |
@@ -93,6 +94,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `GET /communes` | public | The 13 communes, to choose one from a list (ADR-044) |
 | `GET /communes/locate?lat=&lng=` | public, not cached | The commune whose official boundary covers the point (`inside`); else the nearest within 50 m, for a GPS fix just outside Grand Lomé (`nearby`); else `null` |
 | `GET /categories?entityType=BUSINESS\|COMMUNITY` | public | Active categories of one kind of listing |
+| `GET /services?category=reparation` | public | Active services of one category, by name |
 
 A listing is created as a **draft** from `/pro/fiches/nouvelle`, in three ways:
 
@@ -154,6 +156,19 @@ The commune found from the position is only proposed: the person confirms or cha
 - Only approved photos (ADR-019); a listing may be published while some photos await a decision, which then stay hidden (ADR-054).
 - 60 seconds of cache (ADR-022): a suspended listing disappears quickly. This replaces the API's `no-store` on these two routes only.
 - The web page is `/fiches/:slug`, the address to share: "Appeler" (`tel:`), "WhatsApp" (`wa.me`, with a first message), a map with the pin or the sector, "Itinéraire" for a fixed place. The owner reaches it from `/pro/fiches/:id` once published, the back-office from `/admin/fiches/:id`.
+
+## Services, opening hours and email
+
+- **Catalogue** (ADR-006, ADR-024): `npm run db:seed` creates a **provisional** starter catalogue, 91 services, 2 to 8 per category (`apps/api/src/database/seed-data/services.ts`), to check against the field survey. Like categories, a service is only created when missing, so the administrators' later edits stay.
+- **Services of a listing**: `PUT /pro/listings/:id/services` with `{ services: [{ serviceId, details? }] }` replaces the whole list. Rules:
+  - only active services of the listing's own category;
+  - 15 services at most, each once;
+  - `details` of 300 characters at most ("écrans Tecno et Infinix").
+
+  Changing the category drops the services of the old one. A service missing from the catalogue goes in the description.
+- **Opening hours**, in `PATCH /pro/listings/:id`. For each day: closed (`[]`) or one or two ranges, as in `{ "mon": [["08:00","12:00"],["14:00","18:00"]], "sun": [] }`. A day left out is not said. Times are Lomé time, `"24:00"` for midnight; ranges must end after they start and not overlap.
+- **Email**: optional, stored in lowercase.
+- All three show on the public page (`/fiches/:slug`) and on the owner's page. Editing goes through the same rules as the other details: draft or rejected only, and a rejected listing becomes a draft again.
 
 ## Reports
 

@@ -23,6 +23,7 @@ import {
   readDraftListing,
   readListingDetails,
   readListingLocation,
+  readListingServices,
 } from './listing-input';
 import { ListingsService } from './listings.service';
 import type { ListingSummary, OwnListing } from './listings.service';
@@ -95,6 +96,19 @@ export class ListingsController {
     const location = read(readListingLocation, body);
     return {
       listing: await this.listings.replaceLocation(user.id, id, location),
+    };
+  }
+
+  /** Replaces the services of a draft, chosen in its category's catalogue. */
+  @Put(':id/services')
+  async replaceServices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: 404 })) id: string,
+    @Body() body: unknown,
+  ): Promise<{ listing: OwnListing }> {
+    const services = read(readListingServices, body);
+    return {
+      listing: await this.listings.replaceServices(user.id, id, services),
     };
   }
 

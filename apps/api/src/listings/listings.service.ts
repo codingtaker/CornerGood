@@ -22,7 +22,9 @@ import type {
   DraftListingInput,
   DraftLocationInput,
   ListingDetailsInput,
+  ListingServiceInput,
 } from './listing-input';
+import type { OpeningHours } from './opening-hours';
 import { missingForSubmission } from './submission';
 
 /**
@@ -52,6 +54,10 @@ export interface OwnListing extends ListingSummary {
   description: string | null;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  openingHours: OpeningHours | null;
+  /** Ticked in the catalogue of the listing's category (ADR-006). */
+  services: ListedService[];
   /** Why the listing was refused, until it is sent again (UC20). */
   rejection: { reason: string; at: Date } | null;
   location: {
@@ -66,6 +72,31 @@ export interface OwnListing extends ListingSummary {
     addressHint: string | null;
     servedCommunes: { id: string; name: string }[];
   } | null;
+}
+
+export interface ListedService {
+  id: string;
+  name: string;
+  details: string | null;
+}
+
+/** The services of a listing, in the catalogue's order of names. */
+export async function loadServices(
+  db: Kysely<Database>,
+  establishmentId: string,
+): Promise<ListedService[]> {
+  return db
+    .selectFrom('establishment_services')
+    .innerJoin('services', 'services.id', 'establishment_services.service_id')
+    .select(['services.id', 'services.name', 'establishment_services.details'])
+    .where('establishment_services.establishment_id', '=', establishmentId)
+    .orderBy('services.name')
+    .execute();
+}
+
+/** Stored as jsonb; read back as the object it was. */
+function hoursColumn(hours: OpeningHours | null): string | null {
+  return hours ? JSON.stringify(hours) : null;
 }
 
 /** "Atelier de Kossi" → "atelier-de-kossi-4f9k2a": readable and unique. */
@@ -186,6 +217,8 @@ export class ListingsService {
           description: input.description,
           phone: input.phone,
           whatsapp: input.whatsapp,
+          email: input.email,
+          opening_hours: hoursColumn(input.openingHours),
         })
         .returning('id')
         .executeTakeFirstOrThrow();
@@ -244,6 +277,8 @@ export class ListingsService {
           description: input.description,
           phone: input.phone,
           whatsapp: input.whatsapp,
+          email: input.email,
+          opening_hours: hoursColumn(input.openingHours),
           publication_status: 'DRAFT',
           // Never published yet, so no public address depends on it.
           ...(input.name === listing.name
@@ -252,7 +287,82 @@ export class ListingsService {
         })
         .where('id', '=', id)
         .execute();
+      if (input.categoryId !== listing.categoryId) {
+        // The catalogue depends on the category: the old ticks no longer apply.
+        await trx
+          .deleteFrom('establishment_services')
+          .where('establishment_id', '=', id)
+          .where('service_id', 'not in', (eb) =>
+            eb
+              .selectFrom('services')
+              .select('id')
+              .where('category_id', '=', input.categoryId),
+          )
+          .execute();
+      }
       if (listing.status === 'REJECTED') await logReopening(trx, userId, id);
+    });
+    return this.getOwn(userId, id);
+  }
+
+  /**
+   * Replaces the services of a draft, chosen in the catalogue of its
+   * category; a rejected listing becomes a draft again, as for its details.
+   */
+  async replaceServices(
+    userId: string,
+    id: string,
+    services: ListingServiceInput[],
+  ): Promise<OwnListing> {
+    await this.db.transaction().execute(async (trx) => {
+      const listing = await this.lockOwn(trx, userId, id);
+      if (listing.status !== 'DRAFT' && listing.status !== 'REJECTED') {
+        throw new ConflictException({
+          message:
+            'Cette fiche ne peut pas être modifiée dans son état actuel.',
+        });
+      }
+      const ids = services.map((service) => service.serviceId);
+      const known =
+        ids.length === 0
+          ? []
+          : await trx
+              .selectFrom('services')
+              .select('id')
+              .where('id', 'in', ids)
+              .where('category_id', '=', listing.categoryId)
+              .where('is_active', '=', true)
+              .execute();
+      if (known.length !== ids.length) {
+        throw badField(
+          'services',
+          "Un service choisi n'existe pas pour la catégorie de cette fiche.",
+        );
+      }
+      await trx
+        .deleteFrom('establishment_services')
+        .where('establishment_id', '=', id)
+        .execute();
+      if (services.length > 0) {
+        await trx
+          .insertInto('establishment_services')
+          .values(
+            services.map((service) => ({
+              establishment_id: id,
+              service_id: service.serviceId,
+              details: service.details,
+            })),
+          )
+          .execute();
+      }
+      if (listing.status === 'REJECTED') {
+        await trx
+          .updateTable('establishments')
+          .set({ publication_status: 'DRAFT' })
+          .where('id', '=', id)
+          .execute();
+        await logReopening(trx, userId, id);
+      }
     });
     return this.getOwn(userId, id);
   }
@@ -490,6 +600,8 @@ export class ListingsService {
         'establishments.description',
         'establishments.phone',
         'establishments.whatsapp',
+        'establishments.email',
+        'establishments.opening_hours',
         'categories.id as category_id',
         'categories.name as category_name',
       ])
@@ -556,6 +668,9 @@ export class ListingsService {
       description: listing.description,
       phone: listing.phone,
       whatsapp: listing.whatsapp,
+      email: listing.email,
+      openingHours: (listing.opening_hours as OpeningHours | null) ?? null,
+      services: await loadServices(this.db, id),
       rejection:
         lastDecision?.action === 'REJECT' && lastDecision.reason
           ? { reason: lastDecision.reason, at: lastDecision.created_at }

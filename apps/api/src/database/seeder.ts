@@ -2,11 +2,13 @@ import { Kysely, sql } from 'kysely';
 import { Database } from './database.types';
 import { CATEGORIES } from './seed-data/categories';
 import { COMMUNE_BOUNDARIES } from './seed-data/commune-boundaries';
+import { SERVICES } from './seed-data/services';
 import { PREFECTURES, REGION } from './seed-data/territory';
 
 export interface SeedReport {
   communes: number;
   categories: number;
+  services: number;
   communesWithBoundary: number;
   /** Communes with neither a boundary nor a centre: no automatic proposal. */
   communesWithoutLocation: string[];
@@ -17,8 +19,8 @@ export interface SeedReport {
  * slug, never duplicated.
  * - Territory (region, prefectures, communes) is updated, so a corrected name,
  *   boundary or centre is applied by simply running the seed again.
- * - Categories are only created when missing: existing ones are left as the
- *   administrators edited them.
+ * - Categories and services are only created when missing: existing ones are
+ *   left as the administrators edited them.
  */
 export async function seedReferenceData(
   db: Kysely<Database>,
@@ -100,6 +102,31 @@ export async function seedReferenceData(
         .execute();
     }
 
+    // The provisional starter catalogue of services (seed-data/services.ts).
+    const categoryIds = new Map(
+      (await trx.selectFrom('categories').select(['id', 'slug']).execute()).map(
+        (row) => [row.slug, row.id],
+      ),
+    );
+    let services = 0;
+    for (const [categorySlug, list] of Object.entries(SERVICES)) {
+      const categoryId = categoryIds.get(categorySlug);
+      if (!categoryId)
+        throw new Error(`Services for unknown category "${categorySlug}"`);
+      for (const service of list) {
+        await trx
+          .insertInto('services')
+          .values({
+            category_id: categoryId,
+            name: service.name,
+            slug: service.slug,
+          })
+          .onConflict((oc) => oc.column('slug').doNothing())
+          .execute();
+        services += 1;
+      }
+    }
+
     const missing = await trx
       .selectFrom('communes')
       .select('name')
@@ -111,6 +138,7 @@ export async function seedReferenceData(
     return {
       communes: communeCount,
       categories: CATEGORIES.length,
+      services,
       communesWithBoundary: COMMUNE_BOUNDARIES.length,
       communesWithoutLocation: missing.map((row) => row.name),
     };
