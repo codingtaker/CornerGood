@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { InvalidInputError } from '../auth/account-input';
@@ -18,7 +19,11 @@ import {
   SessionGuard,
 } from '../auth/auth.guard';
 import type { AuthenticatedUser } from '../auth/credentials';
-import { readDraftListing, readListingDetails } from './listing-input';
+import {
+  readDraftListing,
+  readListingDetails,
+  readListingLocation,
+} from './listing-input';
 import { ListingsService } from './listings.service';
 import type { ListingSummary, OwnListing } from './listings.service';
 
@@ -78,6 +83,19 @@ export class ListingsController {
   ): Promise<{ listing: OwnListing }> {
     const input = read(readListingDetails, body);
     return { listing: await this.listings.updateDetails(user.id, id, input) };
+  }
+
+  /** Replaces the place of a draft, or of a rejected listing (then a draft again). */
+  @Put(':id/location')
+  async replaceLocation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: 404 })) id: string,
+    @Body() body: unknown,
+  ): Promise<{ listing: OwnListing }> {
+    const location = read(readListingLocation, body);
+    return {
+      listing: await this.listings.replaceLocation(user.id, id, location),
+    };
   }
 
   /** Sends a draft for validation (S4). */

@@ -34,6 +34,7 @@ export interface OwnListing {
     commune: { id: string; name: string };
     point: { lat: number; lng: number } | null;
     accuracyM: number | null;
+    capturedAt: string | null;
     source: "DEVICE_GPS" | "MANUAL_PIN" | "ADMIN" | null;
     addressHint: string | null;
     servedCommunes: { id: string; name: string }[];

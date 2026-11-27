@@ -58,6 +58,7 @@ The API refuses to start in production when `DATABASE_URL` connects with adminis
 | `GET /pro/listings`, `GET /pro/listings/:id` | session | The professional's own listings; the exact point is shown to the owner only (404 for anyone else) |
 | `POST /pro/listings` | session | Creates a draft listing with its location (see *Listings* below) |
 | `PATCH /pro/listings/:id` | owner | Replaces name, category, description, phone and WhatsApp of a draft; a rejected listing becomes a draft again (`409` in any other status) |
+| `PUT /pro/listings/:id/location` | owner | Replaces the place of a draft (body `{ location }`, the same as at creation, same checks): type, commune, point, landmark, served communes; a rejected listing becomes a draft again (`409` in any other status) |
 | `POST /pro/listings/:id/submit` | owner | `DRAFT` → `PENDING` (see *Submission* below) |
 | `GET /admin/…` | session, role `MODERATOR` or `ADMIN` | Moderation; `403` for a professional (see *Back-office* below) |
 
@@ -138,7 +139,7 @@ The commune found from the position is only proposed: the person confirms or cha
 - Each decision changes the status and writes its line in `moderation_log` in one transaction, under a row lock: a second decision, or a late one, answers `409 INVALID_STATE`.
 - Photo decisions are logged too (`APPROVE_MEDIA`, `REJECT_MEDIA`, migration 0008). The line keeps the id of the photo without a foreign key, so the decision stays after the professional deletes a refused photo.
 - Photos are decided only on a listing sent for validation or published: a draft is the professional's work in progress.
-- The professional reads the reason on `/pro/fiches/:id` (`rejection` in `GET /pro/listings/:id`, `rejectionReason` for a photo) until the listing is sent again, corrects it, and sends it again.
+- The professional reads the reason on `/pro/fiches/:id` (`rejection` in `GET /pro/listings/:id`, `rejectionReason` for a photo) until the listing is sent again, corrects it (details, photos, or the place with "Modifier le lieu"), and sends it again.
 - Screens: `/admin/moderation` (queue) and `/admin/fiches/:id` (decision page: "Publier", "Rejeter avec motif", photos one by one, history).
 
 ## Useful commands

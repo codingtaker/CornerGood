@@ -5,11 +5,13 @@ import {
   LOCATION_LABELS,
   STATUS_LABELS,
   type Category,
+  type Commune,
   type OwnListing,
   type OwnPhoto,
 } from "@/lib/listings";
 import { apiFetch, getCurrentUser } from "@/lib/session";
 import { DetailsForm } from "./details-form";
+import { LocationEditor } from "./location-editor";
 import { PhotoSection } from "./photo-section";
 
 export const metadata: Metadata = { title: "Ma fiche · CornerGood" };
@@ -40,12 +42,18 @@ export default async function OwnListingPage({
   const location = listing.location;
   const editable = listing.status === "DRAFT" || listing.status === "REJECTED";
 
-  const categoriesResponse = editable
-    ? await apiFetch(`/categories?type=${listing.entityType}`)
-    : null;
+  const [categoriesResponse, communesResponse] = editable
+    ? await Promise.all([
+        apiFetch(`/categories?type=${listing.entityType}`),
+        apiFetch("/communes"),
+      ])
+    : [null, null];
   const { categories } = categoriesResponse?.ok
     ? ((await categoriesResponse.json()) as { categories: Category[] })
     : { categories: [] };
+  const { communes } = communesResponse?.ok
+    ? ((await communesResponse.json()) as { communes: Commune[] })
+    : { communes: [] };
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 px-4 py-8">
@@ -120,6 +128,13 @@ export default async function OwnListingPage({
             </>
           )}
         </dl>
+      )}
+      {editable && location && communes.length > 0 && (
+        <LocationEditor
+          listingId={listing.id}
+          location={location}
+          communes={communes}
+        />
       )}
 
       {photos ? (
