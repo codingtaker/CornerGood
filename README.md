@@ -186,6 +186,29 @@ The commune found from the position is only proposed: the person confirms or cha
 - Every change of a report is made under a row lock: a second take or close answers `409 INVALID_STATE`. Migration 0009 adds `resolution_note`, required to close a report, and requires a handler once it is taken.
 - Screens: "Signaler une erreur sur cette fiche" on `/fiches/:slug`; `/admin/signalements` (filters by status) and `/admin/signalements/:id` ("Prendre en charge", "Résolu", "Classé").
 
+## Search and home page
+
+| Route (`/api/v1`) | Access | Effect |
+|---|---|---|
+| `GET /search` | public, 60 per minute per address, cached 60 s | Published listings, ranked; `{ data, meta: { page, limit, total } }` |
+
+- **Parameters** (contract §4.1), at least one besides the page, else `400`:
+  - `q`: 2 to 80 characters;
+  - `category`, `service`, `commune`: slugs;
+  - `entityType`;
+  - `lat` and `lng` together, with `radius` (100 to 20000 m, default 3000);
+  - `bbox` = `minLng,minLat,maxLng,maxLat`;
+  - `page` (1 to 50) and `limit` (1 to 50, default 20).
+- **Words**: each word of `q` must be in the name, the category or an active service of the listing, without accents or case ("ecran" finds "Remplacement d'écran"). Short words such as "de" or "la" are dropped. Migration 0010 adds `search_fold()`, the SQL side of this folding.
+- **Places**: a fixed place is found within the radius of its point; a home by its sector centre or its commune; a mobile activity by the communes it serves (RM-023). `bbox` keeps only listings with a point.
+- **Score** (ADR-015, ADR-064): `0.40 × category + 0.30 × service + 0.20 × proximity + 0.10 × completeness`, computed in SQL before paging; ties go by `id`. Proximity is `1 − distance / radius`, or `0.5` for a mobile activity serving the place. Completeness counts a quarter each for an approved photo, opening hours, a service and a second contact. The weights are in `apps/api/src/search/search.service.ts`.
+- **What is read**: only what the public may see: `public_locations`, active services, approved photos. With a position, the answer is cached `private`, not `public`.
+- **Screens**:
+  - `/` (home): "Que cherchez-vous ?", activity, commune, "Autour de moi", then the categories to browse;
+  - `/recherche`: the same form and the results, 20 per page.
+- **Position**: rounded to about 110 m in the address bar.
+- **Who asks the API**: the browser fetches the results through the `/api/v1` rewrite, so the API limits each visitor, not the web server.
+
 ## Useful commands
 
 | Command | Effect |

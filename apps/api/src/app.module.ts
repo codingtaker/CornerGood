@@ -17,6 +17,11 @@ import {
   ReportThrottleGuard,
 } from './reports/reports.controller';
 import { ReportsService } from './reports/reports.service';
+import {
+  SearchController,
+  SearchThrottleGuard,
+} from './search/search.controller';
+import { SearchService } from './search/search.service';
 import { SmsModule } from './sms/sms.module';
 import { AdminController } from './spaces/spaces.controllers';
 import { TerritoryController } from './territory/territory.controller';
@@ -44,6 +49,7 @@ import { TerritoryService } from './territory/territory.service';
     PublicListingsController,
     PublicReportsController,
     AdminReportsController,
+    SearchController,
   ],
   providers: [
     TerritoryService,
@@ -52,6 +58,8 @@ import { TerritoryService } from './territory/territory.service';
     PublicListingsService,
     ReportsService,
     ReportThrottleGuard,
+    SearchService,
+    SearchThrottleGuard,
   ],
 })
 export class AppModule {}
