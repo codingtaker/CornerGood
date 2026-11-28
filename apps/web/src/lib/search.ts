@@ -29,6 +29,8 @@ export interface SearchCriteria {
   lat?: number;
   lng?: number;
   page?: number;
+  /** "map" shows the results on a map (vue=carte), otherwise a list. */
+  view?: "map";
 }
 
 /** Same bounds as the API. */
@@ -73,6 +75,7 @@ export function readCriteria(params: URLSearchParams): SearchCriteria {
   if (page !== undefined && Number.isInteger(page) && page > 1) {
     criteria.page = page;
   }
+  if (params.get("vue") === "carte") criteria.view = "map";
   return criteria;
 }
 
@@ -90,6 +93,7 @@ export function searchQuery(criteria: SearchCriteria): string {
   if (criteria.page && criteria.page > 1) {
     params.set("page", String(criteria.page));
   }
+  if (criteria.view === "map") params.set("vue", "carte");
   return params.toString();
 }
 

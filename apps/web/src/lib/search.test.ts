@@ -41,6 +41,17 @@ describe("search criteria", () => {
     expect(searchHref({})).toBe("/recherche");
   });
 
+  it("keeps the map view in the address, last", () => {
+    expect(readCriteria(new URLSearchParams("vue=carte&q=garage"))).toEqual({
+      q: "garage",
+      view: "map",
+    });
+    expect(readCriteria(new URLSearchParams("vue=autre"))).toEqual({});
+    expect(searchHref({ view: "map", category: "sante" })).toBe(
+      "/recherche?category=sante&vue=carte",
+    );
+  });
+
   it("knows when the API will refuse a search", () => {
     expect(hasCriterion({})).toBe(false);
     expect(hasCriterion({ q: "a" })).toBe(false);

@@ -42,12 +42,14 @@ export function SearchForm({
       category: category || undefined,
       commune: commune || undefined,
       entityType: initial.entityType,
+      view: initial.view,
       ...(near ? near : {}),
     };
   }
 
   function go(next: SearchCriteria) {
-    if (!hasCriterion(next)) {
+    // The map needs no criterion: it shows everything in the area.
+    if (!hasCriterion(next) && next.view !== "map") {
       setMessage(
         "Tapez au moins 2 lettres, ou choisissez une activité ou une commune.",
       );

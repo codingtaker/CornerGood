@@ -46,6 +46,25 @@ describe("SearchForm", () => {
     expect(screen.getByRole("alert").textContent).toContain("2 lettres");
   });
 
+  it("stays on the map, which needs no criterion", () => {
+    render(
+      <SearchForm
+        categories={categories}
+        communes={communes}
+        initial={{ view: "map" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Rechercher" }));
+    expect(push).toHaveBeenCalledWith("/recherche?vue=carte");
+    fireEvent.change(screen.getByLabelText("Activité"), {
+      target: { value: "reparation" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rechercher" }));
+    expect(push).toHaveBeenLastCalledWith(
+      "/recherche?category=reparation&vue=carte",
+    );
+  });
+
   it("searches around the visitor, with a rounded position", async () => {
     vi.stubGlobal("navigator", {
       geolocation: {
